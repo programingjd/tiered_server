@@ -12,6 +12,8 @@ pub(crate) async fn handle_api(
         return handle_otp(request).await;
     } else if path.starts_with("/verify/") {
         return handle_verify(request).await;
+    } else if path == "/auth/req" {
+        todo!("passkey signin request")
     }
     Response::new(Either::Right(Empty::new()))
 }
