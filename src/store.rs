@@ -1,5 +1,5 @@
 use crate::env;
-use crate::env::Key::StoreEncryptionKey;
+use crate::env::ConfigurationKey::StoreEncryptionKey;
 use crate::env::secret_value;
 use crate::otp::ValidationMethod;
 use base64_simd::URL_SAFE_NO_PAD;
@@ -66,11 +66,11 @@ fn store() -> Option<Box<dyn ObjectStore>> {
 }
 
 fn s3_store() -> Option<AmazonS3> {
-    let region = secret_value(env::Key::S3Region)?;
-    let endpoint = secret_value(env::Key::S3Endpoint)?;
-    let bucket = secret_value(env::Key::S3Bucket)?;
-    let access_key = secret_value(env::Key::S3AccessKey)?;
-    let secret_key = secret_value(env::Key::S3SecretKey)?;
+    let region = secret_value(env::ConfigurationKey::S3Region)?;
+    let endpoint = secret_value(env::ConfigurationKey::S3Endpoint)?;
+    let bucket = secret_value(env::ConfigurationKey::S3Bucket)?;
+    let access_key = secret_value(env::ConfigurationKey::S3AccessKey)?;
+    let secret_key = secret_value(env::ConfigurationKey::S3SecretKey)?;
     AmazonS3Builder::new()
         .with_region(region)
         .with_endpoint(endpoint)
@@ -117,6 +117,7 @@ impl NonceSequence for SingleUseNonce {
     }
 }
 
+//noinspection SpellCheckingInspection
 static ENCRYPTION_KEY: LazyLock<&'static str> = LazyLock::new(|| {
     secret_value(StoreEncryptionKey).unwrap_or("BEi1IBgn9rj6aNUewc4ENyJiKSiUj_c4J7jLKZTg1Ro")
 });

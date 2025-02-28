@@ -1,4 +1,4 @@
-use crate::env::Key::OtpSigningKey;
+use crate::env::ConfigurationKey::OtpSigningKey;
 use crate::env::secret_value;
 use crate::headers::{CLOUDFLARE_CDN_CACHE_CONTROL, GET};
 use crate::store::get_otp;
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::str::from_utf8;
 use std::sync::LazyLock;
 
+//noinspection SpellCheckingInspection
 static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
     secret_value(OtpSigningKey).unwrap_or("A8UVAbg0L_ZCsirPCsdxqe5GmaFRa1NSfUkc3Evsu2k")
 });
@@ -56,6 +57,7 @@ pub(crate) async fn handle_otp(
     }
     let mut response = Response::builder();
     let headers = response.headers_mut().unwrap();
+    //noinspection SpellCheckingInspection
     headers.insert(
         from_utf8(CLOUDFLARE_CDN_CACHE_CONTROL).unwrap(),
         HeaderValue::from_static("public,max-age=31536000,s-maxage=31536000,immutable"),

@@ -24,9 +24,9 @@ static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
     map
 });
 
-static ENV: LazyLock<HashMap<Key, &'static str>> = LazyLock::new(|| {
-    let mut map = HashMap::<Key, &'static str>::new();
-    Key::all().for_each(|it| {
+static ENV: LazyLock<HashMap<ConfigurationKey, &'static str>> = LazyLock::new(|| {
+    let mut map = HashMap::<ConfigurationKey, &'static str>::new();
+    ConfigurationKey::all().for_each(|it| {
         if let Some(ref value) = std::env::var_os(it.name()) {
             if let Some(v) = value.to_str() {
                 map.insert(it, v.to_string().leak());
@@ -37,7 +37,7 @@ static ENV: LazyLock<HashMap<Key, &'static str>> = LazyLock::new(|| {
 });
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
-pub(crate) enum Key {
+pub(crate) enum ConfigurationKey {
     DomainApex,
     BindAddress,
     StaticGithubUser,
@@ -51,9 +51,11 @@ pub(crate) enum Key {
     S3SecretKey,
     StoreEncryptionKey,
     OtpSigningKey,
+    ApiPathPrefix,
+    UserPathPrefix,
 }
 
-impl Key {
+impl ConfigurationKey {
     fn all() -> impl Iterator<Item = Self> {
         [Self::BindAddress].into_iter()
     }
@@ -72,11 +74,13 @@ impl Key {
             Self::S3SecretKey => "S3_SECRET_KEY",
             Self::StoreEncryptionKey => "STORE_ENCRYPTION_KEY",
             Self::OtpSigningKey => "OTP_SIGNING_KEY",
+            Self::ApiPathPrefix => "API_PATH_PREFIX",
+            Self::UserPathPrefix => "USER_PATH_PREFIX",
         }
     }
 }
 
-pub(crate) fn secret_value(key: Key) -> Option<&'static str> {
+pub(crate) fn secret_value(key: ConfigurationKey) -> Option<&'static str> {
     match ENV.get(&key).or_else(|| FILE.get(key.name())) {
         Some(value) => Some(*value),
         None => None,

@@ -1,4 +1,4 @@
-use crate::env::Key::StaticGithubWebhookToken;
+use crate::env::ConfigurationKey::StaticGithubWebhookToken;
 use crate::env::secret_value;
 use crate::headers::{POST, X_HUB_SIGNATURE_256_HASH};
 use http_body_util::BodyExt;

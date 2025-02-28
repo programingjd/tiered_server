@@ -13,7 +13,7 @@ pub(crate) async fn handle_api(
     } else if path.starts_with("/verify/") {
         return handle_verify(request).await;
     } else if path == "/auth/req" {
-        todo!("passkey signin request")
+        todo!("passkey sign-in request")
     }
     Response::new(Either::Right(Empty::new()))
 }

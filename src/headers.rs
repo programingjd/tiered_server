@@ -8,8 +8,6 @@ use zip_static_handler::http::headers::{
 
 pub(crate) const GET: HeaderValue = HeaderValue::from_static("GET");
 pub(crate) const POST: HeaderValue = HeaderValue::from_static("POST");
-pub(crate) const LOGIN_PATH: HeaderValue = HeaderValue::from_static("/login");
-pub(crate) const USER_PATH: HeaderValue = HeaderValue::from_static("/user");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
     HeaderName::from_static("x-hub-signature-256-hash");
@@ -66,10 +64,10 @@ static DEFAULT_HEADERS: LazyLock<Vec<Line>> = LazyLock::new(|| {
 });
 
 pub static ERROR_HEADERS: LazyLock<Vec<Line>> = LazyLock::new(|| {
-    let headers/*: Vec<(&'static [u8], &'static [u8])>*/ = vec![
+    let headers = vec![
         (ALLOW, b"GET, HEAD".as_slice()).into(),
         (CONTENT_LENGTH, b"0".as_slice()).into(),
-        //(HSTS, b"max-age=63072000; includeSubDomains; preload".as_slice()),
+        // (HSTS, b"max-age=63072000; includeSubDomains; preload".as_slice()),
     ];
     headers
 });

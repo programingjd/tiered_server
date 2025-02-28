@@ -3,21 +3,23 @@ mod env;
 mod firewalls;
 mod headers;
 mod otp;
+mod prefix;
 mod push_webhook;
+mod session;
 mod store;
 mod verify;
 
 extern crate rustls as extern_rustls;
 
 use crate::api::handle_api;
-use crate::env::Key::{
+use crate::env::ConfigurationKey::{
     BindAddress, DomainApex, StaticGithubBranch, StaticGithubRepository, StaticGithubUser,
 };
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
-use crate::headers::LOGIN_PATH;
+use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
-use basic_cookies::Cookie;
+use crate::session::SessionState;
 use extern_rustls::ServerConfig;
 use extern_rustls::crypto::ring::sign::any_supported_type;
 use extern_rustls::pki_types::PrivateKeyDer;
@@ -29,7 +31,7 @@ use firewall::cloudflare::fetch_cloudflare_ip_ranges;
 use firewall::github::fetch_github_webhook_ip_ranges;
 use headers::HSelector;
 use http_body_util::{Either, Empty};
-use hyper::header::{COOKIE, LOCATION};
+use hyper::header::{HeaderValue, LOCATION};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Response, StatusCode};
@@ -39,6 +41,7 @@ use rcgen::generate_simple_self_signed;
 use reqwest::Client;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::ops::Deref;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::spawn;
@@ -52,7 +55,7 @@ struct LocalhostResolver {
 }
 
 impl Default for LocalhostResolver {
-    /// Create self signed certificate for domain "localhost" and ip "127.0.0.1".
+    /// Create self-signed certificate for domain "localhost" and ip "127.0.0.1".
     fn default() -> Self {
         let cert = generate_simple_self_signed(vec![
             "localhost".to_string(),
@@ -84,7 +87,6 @@ async fn download(url: &str) -> Result<Vec<u8>, reqwest::Error> {
 
 #[tokio::main]
 async fn main() {
-    // Tracing/logging setup
     #[cfg(debug_assertions)]
     tracing_subscriber::fmt()
         .compact()
@@ -154,13 +156,15 @@ async fn main() {
     ))
     .await
     .expect("failed to download static content");
+    let api_path_prefix = API_PATH_PREFIX.deref();
+    let user_path_prefix = USER_PATH_PREFIX.deref();
     let listener = TcpListener::bind((secret_value(BindAddress).unwrap_or("0.0.0.0"), 443u16))
         .await
         .expect("could not bind to 443");
     let static_handler = Arc::new(
         Handler::builder()
             .with_custom_header_selector(&HSelector)
-            .with_zip_prefix(&format!("{github_repository}-{github_branch}/"))
+            .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
             .with_zip(zip)
             .try_build()
             .expect("failed to extract static content"),
@@ -192,7 +196,7 @@ async fn main() {
                                     let api = request
                                         .uri()
                                         .path_and_query()
-                                        .is_some_and(|it| it.path().starts_with("/api/"));
+                                        .is_some_and(|it| api_path_prefix.matches(it.path()));
                                     let handler = static_handler.clone();
                                     async move {
                                         if is_webhook {
@@ -202,40 +206,41 @@ async fn main() {
                                         } else {
                                             let path = request.uri().path();
                                             if handler.entry(path).is_some()
-                                                && (path == "/user" || path.starts_with("/user/"))
-                                                && request
-                                                    .headers()
-                                                    .get(COOKIE)
-                                                    .and_then(|it| it.to_str().ok())
-                                                    .and_then(|it| Cookie::parse(it).ok())
-                                                    .and_then(|it| {
-                                                        it.iter().find_map(|it| {
-                                                            if it.get_name() == "session" {
-                                                                Some(it.get_value())
-                                                            } else {
-                                                                None
-                                                            }
-                                                        })
-                                                    })
-                                                    .is_none()
+                                                && user_path_prefix.matches(path)
                                             {
-                                                let response = match request.method() {
-                                                    &Method::HEAD | &Method::GET => {
-                                                        let mut response = Response::builder()
-                                                            .status(StatusCode::FOUND);
-                                                        let headers =
-                                                            response.headers_mut().unwrap();
-                                                        headers.insert(LOCATION, LOGIN_PATH);
-                                                        response
+                                                if let Some(redirect) =
+                                                    match SessionState::from_headers(
+                                                        request.headers(),
+                                                    ) {
+                                                        SessionState::Valid { .. } => None,
+                                                        SessionState::Expired { .. } => None,
+                                                        SessionState::Missing { .. }
+                                                        | SessionState::Corrupted => Some(
+                                                            api_path_prefix.with_trailing_slash,
+                                                        ),
                                                     }
-                                                    _ => Response::builder()
-                                                        .status(StatusCode::FORBIDDEN),
-                                                };
-                                                return Ok::<_, Infallible>(
-                                                    response
-                                                        .body(Either::Right(Empty::new()))
-                                                        .unwrap(),
-                                                );
+                                                {
+                                                    let response = match request.method() {
+                                                        &Method::HEAD | &Method::GET => {
+                                                            let mut response = Response::builder()
+                                                                .status(StatusCode::FOUND);
+                                                            let headers =
+                                                                response.headers_mut().unwrap();
+                                                            headers.insert(
+                                                                LOCATION,
+                                                                HeaderValue::from_static(redirect),
+                                                            );
+                                                            response
+                                                        }
+                                                        _ => Response::builder()
+                                                            .status(StatusCode::FORBIDDEN),
+                                                    };
+                                                    return Ok::<_, Infallible>(
+                                                        response
+                                                            .body(Either::Right(Empty::new()))
+                                                            .unwrap(),
+                                                    );
+                                                }
                                             }
                                             Ok::<_, Infallible>(
                                                 handler.handle_hyper_request(request),
