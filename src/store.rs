@@ -10,6 +10,7 @@ use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use object_store::{GetResultPayload, ObjectStore, PutPayload};
+use pinboard::NonEmptyPinboard;
 use ring::aead::{
     AES_256_GCM, Aad, BoundKey, LessSafeKey, Nonce, NonceSequence, OpeningKey, UnboundKey,
 };
@@ -17,9 +18,85 @@ use ring::error::Unspecified;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read;
-use std::iter;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
+use std::time::{Duration, SystemTime};
+use std::{iter, thread};
+use tokio::time::{MissedTickBehavior, interval};
+
+pub(crate) struct Snapshot {
+    entries: HashMap<String, Entry>,
+    timestamp: u32,
+}
+
+struct Entry {
+    data: Vec<u8>,
+    timestamp: u32,
+}
+
+type StorageCache = Arc<NonEmptyPinboard<Snapshot>>;
+
+pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
+    thread::spawn(move || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let mut delay = interval(Duration::from_secs(1_000));
+                delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                loop {
+                    delay.tick().await;
+                    let current = store_cache.get_ref();
+                    if let Some(snapshot) = snapshot(Some(&current)).await {
+                        store_cache.set(snapshot);
+                    }
+                }
+            });
+    });
+}
+
+pub(crate) async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+    let store = store()?;
+    let mut entries =
+        HashMap::with_capacity(256 + reference.map(|it| it.entries.len()).unwrap_or(256));
+    let mut iter = store.list(None);
+    while let Some(metadata) = iter.next().await {
+        if metadata.is_err() {
+            return None;
+        }
+        let metadata = metadata.unwrap();
+        let timestamp = metadata.last_modified.timestamp() as u32;
+        let data = if let Some(existing) = reference
+            .and_then(|it| it.entries.get(metadata.location.as_ref()))
+            .filter(|it| it.timestamp == timestamp)
+        {
+            existing.data.clone()
+        } else {
+            let result = store.get(&metadata.location).await.ok()?;
+            download(result.payload).await?
+        };
+        entries.insert(metadata.location.into(), Entry { timestamp, data });
+    }
+    Some(Snapshot { entries, timestamp })
+}
+
+impl Snapshot {
+    pub(crate) fn get<T: DeserializeOwned>(&self, path: &str) -> Option<T> {
+        self.entries.get(path).and_then(|entry| {
+            let payload = entry.data.as_slice();
+            let nonce: [u8; 12] = payload[0..12].try_into().unwrap();
+            let encrypted_base64 = &payload[12..];
+            decrypt(nonce, encrypted_base64)
+        })
+    }
+}
 
 pub(crate) async fn get_otp(token: &str) -> Option<ValidationMethod> {
     let store = store()?;

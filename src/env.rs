@@ -53,6 +53,7 @@ pub(crate) enum ConfigurationKey {
     OtpSigningKey,
     ApiPathPrefix,
     UserPathPrefix,
+    LoginPath,
 }
 
 impl ConfigurationKey {
@@ -76,6 +77,7 @@ impl ConfigurationKey {
             Self::OtpSigningKey => "OTP_SIGNING_KEY",
             Self::ApiPathPrefix => "API_PATH_PREFIX",
             Self::UserPathPrefix => "USER_PATH_PREFIX",
+            Self::LoginPath => "LOGIN_PATH",
         }
     }
 }

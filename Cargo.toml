@@ -98,3 +98,6 @@ features = []
 version = "0.3"
 features = ["env-filter"]
 
+[profile.release]
+lto = "fat"
+codegen-units = 1

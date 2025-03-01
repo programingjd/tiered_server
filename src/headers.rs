@@ -6,6 +6,7 @@ use zip_static_handler::http::headers::{
     SERVICE_WORKER_ALLOWED, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION,
 };
 
+pub(crate) const HTML: &[u8] = b"text/html";
 pub(crate) const GET: HeaderValue = HeaderValue::from_static("GET");
 pub(crate) const POST: HeaderValue = HeaderValue::from_static("POST");
 
@@ -95,7 +96,7 @@ pub(crate) fn headers_for_type(
 ) -> Option<HeadersAndCompression> {
     match extension {
         "html" | "htm" => Some(headers_and_compression(
-            Some(b"text/html"),
+            Some(HTML),
             Some(CACHE_CONTROL_REVALIDATE),
             true,
             true,

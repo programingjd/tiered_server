@@ -35,7 +35,9 @@ pub(crate) fn update_firewall_loop(
                     delay.tick().await;
                     if let Ok(cidr_list) = fetch_cloudflare_ip_ranges().await {
                         if cidr_list.len() != cloudflare_ip_ranges.len()
-                            || cidr_list.iter().any(|it| !cloudflare_ip_ranges.contains(it))
+                            || cidr_list
+                                .iter()
+                                .any(|it| !cloudflare_ip_ranges.contains(it))
                         {
                             let replacement = Firewall::default()
                                 .require_sni()

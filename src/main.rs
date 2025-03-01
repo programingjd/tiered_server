@@ -17,9 +17,11 @@ use crate::env::ConfigurationKey::{
 };
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
+use crate::headers::HTML;
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
-use crate::session::SessionState;
+use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
+use crate::store::{snapshot, update_store_cache_loop};
 use extern_rustls::ServerConfig;
 use extern_rustls::crypto::ring::sign::any_supported_type;
 use extern_rustls::pki_types::PrivateKeyDer;
@@ -31,7 +33,7 @@ use firewall::cloudflare::fetch_cloudflare_ip_ranges;
 use firewall::github::fetch_github_webhook_ip_ranges;
 use headers::HSelector;
 use http_body_util::{Either, Empty};
-use hyper::header::{HeaderValue, LOCATION};
+use hyper::header::{HeaderValue, LOCATION, SET_COOKIE};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Response, StatusCode};
@@ -48,6 +50,7 @@ use tokio::spawn;
 use tokio_rustls::LazyConfigAcceptor;
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
+use zip_static_handler::http::headers::CONTENT_TYPE;
 
 #[derive(Debug)]
 struct LocalhostResolver {
@@ -100,6 +103,8 @@ async fn main() {
         ))
         .init();
 
+    let snapshot = snapshot(None).await.expect("failed to cache store content");
+
     let cloudflare_ip_ranges = fetch_cloudflare_ip_ranges()
         .await
         .expect("failed to fetch cloudflare ip ranges");
@@ -143,6 +148,10 @@ async fn main() {
         github_ip_ranges.clone(),
     );
 
+    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
+
+    update_store_cache_loop(store_cache.clone());
+
     let github_user =
         secret_value(StaticGithubUser).expect("missing github user for static content repository");
     let github_repository = secret_value(StaticGithubRepository)
@@ -158,6 +167,7 @@ async fn main() {
     .expect("failed to download static content");
     let api_path_prefix = API_PATH_PREFIX.deref();
     let user_path_prefix = USER_PATH_PREFIX.deref();
+    let login_path = *LOGIN_PATH.deref();
     let listener = TcpListener::bind((secret_value(BindAddress).unwrap_or("0.0.0.0"), 443u16))
         .await
         .expect("could not bind to 443");
@@ -171,6 +181,7 @@ async fn main() {
     );
     loop {
         if let Ok((tcp_stream, remote_address)) = listener.accept().await {
+            let store_cache = store_cache.clone();
             let firewall = firewall.clone();
             let webhook_firewall = webhook_firewall.clone();
             let config = config.clone();
@@ -193,53 +204,79 @@ async fn main() {
                             .serve_connection(
                                 io,
                                 service_fn(move |request| {
-                                    let api = request
-                                        .uri()
-                                        .path_and_query()
-                                        .is_some_and(|it| api_path_prefix.matches(it.path()));
                                     let handler = static_handler.clone();
+                                    let store_cache = store_cache.clone();
                                     async move {
+                                        let path = request.uri().path();
                                         if is_webhook {
                                             Ok::<_, Infallible>(handle_webhook(request).await)
-                                        } else if api {
-                                            Ok::<_, Infallible>(handle_api(request).await)
+                                        } else if api_path_prefix.matches(path) {
+                                            Ok::<_, Infallible>(
+                                                handle_api(request, store_cache).await,
+                                            )
                                         } else {
-                                            let path = request.uri().path();
-                                            if handler.entry(path).is_some()
-                                                && user_path_prefix.matches(path)
-                                            {
-                                                if let Some(redirect) =
+                                            if user_path_prefix.matches(path) {
+                                                if let Some(HTML) =
+                                                    handler.entry(path).and_then(|it| {
+                                                        it.headers.iter().find_map(|it| {
+                                                            if it.key == CONTENT_TYPE {
+                                                                Some(it.value.as_ref())
+                                                            } else {
+                                                                None
+                                                            }
+                                                        })
+                                                    })
+                                                {
                                                     match SessionState::from_headers(
                                                         request.headers(),
-                                                    ) {
-                                                        SessionState::Valid { .. } => None,
-                                                        SessionState::Expired { .. } => None,
-                                                        SessionState::Missing { .. }
-                                                        | SessionState::Corrupted => Some(
-                                                            api_path_prefix.with_trailing_slash,
-                                                        ),
-                                                    }
-                                                {
-                                                    let response = match request.method() {
-                                                        &Method::HEAD | &Method::GET => {
-                                                            let mut response = Response::builder()
-                                                                .status(StatusCode::FOUND);
-                                                            let headers =
-                                                                response.headers_mut().unwrap();
-                                                            headers.insert(
-                                                                LOCATION,
-                                                                HeaderValue::from_static(redirect),
-                                                            );
+                                                        store_cache,
+                                                    )
+                                                    .await
+                                                    {
+                                                        SessionState::Valid { .. } => {}
+                                                        SessionState::Expired { .. } => {
+                                                            let mut response = handler
+                                                                .handle_hyper_request(request);
                                                             response
+                                                                .headers_mut()
+                                                                .insert(SET_COOKIE, SID_EXPIRED);
+                                                            return Ok(response);
                                                         }
-                                                        _ => Response::builder()
-                                                            .status(StatusCode::FORBIDDEN),
-                                                    };
-                                                    return Ok::<_, Infallible>(
-                                                        response
-                                                            .body(Either::Right(Empty::new()))
-                                                            .unwrap(),
-                                                    );
+                                                        SessionState::Missing
+                                                        | SessionState::Corrupted => {
+                                                            let response = match request.method() {
+                                                                &Method::HEAD | &Method::GET => {
+                                                                    let mut response =
+                                                                        Response::builder().status(
+                                                                            StatusCode::FOUND,
+                                                                        );
+                                                                    let headers = response
+                                                                        .headers_mut()
+                                                                        .unwrap();
+                                                                    headers.insert(
+                                                                        LOCATION,
+                                                                        HeaderValue::from_static(
+                                                                            login_path,
+                                                                        ),
+                                                                    );
+                                                                    headers.insert(
+                                                                        SET_COOKIE,
+                                                                        SID_EXPIRED,
+                                                                    );
+                                                                    response
+                                                                }
+                                                                _ => Response::builder()
+                                                                    .status(StatusCode::FORBIDDEN),
+                                                            };
+                                                            return Ok::<_, Infallible>(
+                                                                response
+                                                                    .body(Either::Right(
+                                                                        Empty::new(),
+                                                                    ))
+                                                                    .unwrap(),
+                                                            );
+                                                        }
+                                                    }
                                                 }
                                             }
                                             Ok::<_, Infallible>(
