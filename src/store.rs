@@ -96,6 +96,19 @@ impl Snapshot {
             decrypt(nonce, encrypted_base64)
         })
     }
+    pub(crate) async fn set<T: Serialize>(path: &str, data: &T) -> Option<()> {
+        let store = store()?;
+        let path = Path::from(path);
+        let encrypted = encrypt(data);
+        let payload = PutPayload::from_iter(
+            iter::once(Bytes::from_owner(encrypted.nonce))
+                .chain(iter::once(Bytes::from_owner(encrypted.encrypted_base64))),
+        );
+        match store.put(&path, payload).await {
+            Ok(_) => Some(()),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) async fn get_otp(token: &str) -> Option<ValidationMethod> {

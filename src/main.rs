@@ -1,4 +1,5 @@
 mod api;
+mod auth;
 mod env;
 mod firewalls;
 mod headers;
