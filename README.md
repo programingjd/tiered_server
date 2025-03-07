@@ -5,19 +5,22 @@ object storage
 ```
 /
   sid
-    {id1} -> (user,timestamp)
-    {id2} -> (user,timestamp)
+    {session_id} -> (user,timestamp)
+    {session_id} -> (user,timestamp)
   otp
     email
-      {encrypted_email_hash_1}
-        {otp_token_1}
-      {encrypted_email_hash_2}
-      {encrypted_email_hash_3}
+      {encrypted_email_hash}
+        {otp_token}
+      {encrypted_email_hash}
+      {encrypted_email_hash}
     sms
-      {encrypted_sms_hash_1}
+      {encrypted_sms_hash}
   pk
-    {encrypted_email_hash_2}
-      {pk_1}
+    {user}
+      {passkey}
+      {passkey}
+    {user}
+      {passkey}
 ```
 
 ### Sessions
