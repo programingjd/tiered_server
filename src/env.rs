@@ -9,17 +9,20 @@ static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
         let mut content = String::new();
         it.read_to_string(&mut content).map(|_| content)
     }) {
-        content.split('\n').for_each(|line| {
-            let mut parts = line.split('=');
-            if let Some(key) = parts.next() {
-                if let Some(value) = parts.next() {
-                    map.insert(
-                        key.trim().to_string().leak(),
-                        value.trim().to_string().leak(),
-                    );
+        content
+            .split('\n')
+            .filter(|&line| line.trim_start().starts_with('#'))
+            .for_each(|line| {
+                let mut parts = line.split('=');
+                if let Some(key) = parts.next() {
+                    if let Some(value) = parts.next() {
+                        map.insert(
+                            key.trim().to_string().leak(),
+                            value.trim().to_string().leak(),
+                        );
+                    }
                 }
-            }
-        })
+            })
     }
     map
 });
@@ -54,6 +57,9 @@ pub(crate) enum ConfigurationKey {
     ApiPathPrefix,
     UserPathPrefix,
     LoginPath,
+    IdentificationHashPrefix,
+    UserHashPrefix,
+    AdminUsers,
 }
 
 impl ConfigurationKey {
@@ -78,6 +84,9 @@ impl ConfigurationKey {
             Self::ApiPathPrefix => "API_PATH_PREFIX",
             Self::UserPathPrefix => "USER_PATH_PREFIX",
             Self::LoginPath => "LOGIN_PATH",
+            Self::IdentificationHashPrefix => "IDENTIFICATION_HASH_PREFIX",
+            Self::UserHashPrefix => "USER_HASH_PREFIX",
+            Self::AdminUsers => "ADMIN_USERS",
         }
     }
 }

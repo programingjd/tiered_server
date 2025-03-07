@@ -1,7 +1,6 @@
 use crate::auth::handle_api_auth;
 use crate::otp::handle_otp;
 use crate::store::Snapshot;
-use crate::verify::handle_verify;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
@@ -17,9 +16,7 @@ pub(crate) async fn handle_api(
         return handle_api_auth(request, store_cache).await;
     }
     if path.starts_with("/otp/") {
-        return handle_otp(request).await;
-    } else if path.starts_with("/verify/") {
-        return handle_verify(request).await;
+        return handle_otp(request, store_cache).await;
     }
     Response::new(Either::Right(Empty::new()))
 }

@@ -39,7 +39,7 @@ pub(crate) async fn handle_api_auth(
             let mut challenge = [0u8; 32];
             SystemRandom::new().fill(&mut challenge).unwrap();
             let credential_request = CredentialRequestOptions {
-                challenge: URL_SAFE_NO_PAD.encode_to_string(&challenge),
+                challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
                 allow_credentials: vec![], // todo retrieve passkeys for this user
             };
             return Response::builder()

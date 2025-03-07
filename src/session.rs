@@ -1,6 +1,7 @@
-use crate::env::ConfigurationKey::{LoginPath, UserPathPrefix};
+use crate::env::ConfigurationKey::LoginPath;
 use crate::env::secret_value;
 use crate::store::Snapshot;
+use crate::user::User;
 use base64_simd::URL_SAFE_NO_PAD;
 use basic_cookies::Cookie;
 use hyper::HeaderMap;
@@ -9,7 +10,6 @@ use hyper::http::HeaderValue;
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use std::default::Default;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 
@@ -21,23 +21,10 @@ pub(crate) static LOGIN_PATH: LazyLock<&str> =
 pub(crate) const SID_EXPIRED: HeaderValue =
     HeaderValue::from_static("st=0; Secure; SameSite=Strict");
 
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct User {
-    email: String,
-    display_name: String,
-    #[serde(skip_serializing_if = "is_default")]
-    admin: bool,
-}
-
 pub(crate) enum SessionState {
     Missing,
-    Corrupted,
     Expired { user: User },
     Valid { user: User },
-}
-
-fn is_default<T: Default + PartialEq>(t: &T) -> bool {
-    t == &T::default()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,8 +41,9 @@ impl User {
             .unwrap()
             .as_secs() as u32;
         let session = Session { user, timestamp };
-        let mut random = [0u8; 32];
-        SystemRandom::new().fill(&mut random).unwrap();
+        let mut random = [0u8; 36];
+        random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
+        SystemRandom::new().fill(&mut random[..32]).unwrap();
         let session_id = URL_SAFE_NO_PAD.encode_to_string(
             timestamp
                 .to_le_bytes()

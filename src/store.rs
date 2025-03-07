@@ -1,10 +1,8 @@
 use crate::env;
 use crate::env::ConfigurationKey::StoreEncryptionKey;
 use crate::env::secret_value;
-use crate::otp::ValidationMethod;
 use base64_simd::URL_SAFE_NO_PAD;
-use chrono::Utc;
-use futures_lite::StreamExt;
+use futures_lite::{StreamExt, stream};
 use hyper::body::Bytes;
 use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::local::LocalFileSystem;
@@ -109,39 +107,12 @@ impl Snapshot {
             _ => None,
         }
     }
-}
-
-pub(crate) async fn get_otp(token: &str) -> Option<ValidationMethod> {
-    let store = store()?;
-    let path = Path::from(format!("/otp/{token}"));
-    let result = store.get(&path).await.ok()?;
-    let now = Utc::now();
-    let duration = now
-        .signed_duration_since(result.meta.last_modified)
-        .num_minutes();
-    let payload = if duration > -1_i64 && duration < 20_i64 {
-        download(result.payload).await
-    } else {
-        None
-    };
-    let _ = store.delete(&path).await;
-    let payload = payload?;
-    let nonce: [u8; 12] = payload[0..12].try_into().unwrap();
-    let encrypted_base64 = &payload[12..];
-    decrypt(nonce, encrypted_base64)
-}
-
-pub(crate) async fn set_otp(token: &str, validation_method: &ValidationMethod) -> Option<()> {
-    let store = store()?;
-    let path = Path::from(format!("/otp/{token}"));
-    let encrypted = encrypt(validation_method);
-    let payload = PutPayload::from_iter(
-        iter::once(Bytes::from_owner(encrypted.nonce))
-            .chain(iter::once(Bytes::from_owner(encrypted.encrypted_base64))),
-    );
-    match store.put(&path, payload).await {
-        Ok(_) => Some(()),
-        _ => None,
+    pub(crate) async fn delete(paths: Vec<&str>) -> Option<()> {
+        let store = store()?;
+        let mut iter = store
+            .delete_stream(stream::iter(paths.into_iter().map(|it| Ok(Path::from(it)))).boxed());
+        while let Some(_metadata) = iter.next().await {}
+        Some(())
     }
 }
 

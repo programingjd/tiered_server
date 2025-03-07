@@ -8,7 +8,7 @@ mod prefix;
 mod push_webhook;
 mod session;
 mod store;
-mod verify;
+mod user;
 
 extern crate rustls as extern_rustls;
 
@@ -23,6 +23,7 @@ use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
 use crate::store::{snapshot, update_store_cache_loop};
+use crate::user::ensure_admin_users_exist;
 use extern_rustls::ServerConfig;
 use extern_rustls::crypto::ring::sign::any_supported_type;
 use extern_rustls::pki_types::PrivateKeyDer;
@@ -105,6 +106,9 @@ async fn main() {
         .init();
 
     let snapshot = snapshot(None).await.expect("failed to cache store content");
+    ensure_admin_users_exist(&snapshot)
+        .await
+        .expect("failed to get or create admin users");
 
     let cloudflare_ip_ranges = fetch_cloudflare_ip_ranges()
         .await
@@ -243,8 +247,7 @@ async fn main() {
                                                                 .insert(SET_COOKIE, SID_EXPIRED);
                                                             return Ok(response);
                                                         }
-                                                        SessionState::Missing
-                                                        | SessionState::Corrupted => {
+                                                        SessionState::Missing => {
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
                                                                     let mut response =
