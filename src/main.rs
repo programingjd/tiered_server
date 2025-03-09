@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod email;
 mod env;
 mod firewalls;
 mod headers;
@@ -19,7 +20,7 @@ use crate::env::ConfigurationKey::{
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
 use crate::headers::HTML;
-use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
+use crate::prefix::{API_PATH_PREFIX, TEMPLATE_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
 use crate::store::{snapshot, update_store_cache_loop};
@@ -46,13 +47,17 @@ use reqwest::Client;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::net::TcpListener;
 use tokio::spawn;
 use tokio_rustls::LazyConfigAcceptor;
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
 use zip_static_handler::http::headers::CONTENT_TYPE;
+
+//noinspection SpellCheckingInspection
+static DOMAIN_APEX: LazyLock<&'static str> =
+    LazyLock::new(|| secret_value(DomainApex).expect("missing domain name"));
 
 #[derive(Debug)]
 struct LocalhostResolver {
@@ -105,18 +110,13 @@ async fn main() {
         ))
         .init();
 
-    let snapshot = snapshot(None).await.expect("failed to cache store content");
-    ensure_admin_users_exist(&snapshot)
-        .await
-        .expect("failed to get or create admin users");
-
     let cloudflare_ip_ranges = fetch_cloudflare_ip_ranges()
         .await
         .expect("failed to fetch cloudflare ip ranges");
     let github_ip_ranges = fetch_github_webhook_ip_ranges()
         .await
         .expect("failed to fetch github webhook ip ranges");
-    let domain_apex = secret_value(DomainApex).expect("missing domain name");
+    let domain_apex = *DOMAIN_APEX;
     let domains = vec![
         domain_apex.to_string(),
         format!("www.{domain_apex}"),
@@ -153,10 +153,6 @@ async fn main() {
         github_ip_ranges.clone(),
     );
 
-    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
-
-    update_store_cache_loop(store_cache.clone());
-
     let github_user =
         secret_value(StaticGithubUser).expect("missing github user for static content repository");
     let github_repository = secret_value(StaticGithubRepository)
@@ -172,18 +168,26 @@ async fn main() {
     .expect("failed to download static content");
     let api_path_prefix = API_PATH_PREFIX.deref();
     let user_path_prefix = USER_PATH_PREFIX.deref();
+    let templates_path_prefix = TEMPLATE_PATH_PREFIX.deref();
     let login_path = *LOGIN_PATH.deref();
     let listener = TcpListener::bind((secret_value(BindAddress).unwrap_or("0.0.0.0"), 443u16))
         .await
         .expect("could not bind to 443");
-    let static_handler = Arc::new(
-        Handler::builder()
-            .with_custom_header_selector(&HSelector)
-            .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
-            .with_zip(zip)
-            .try_build()
-            .expect("failed to extract static content"),
-    );
+    let static_handler = Handler::builder()
+        .with_custom_header_selector(&HSelector)
+        .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
+        .with_zip(zip)
+        .try_build()
+        .expect("failed to extract static content");
+
+    let snapshot = snapshot(None).await.expect("failed to cache store content");
+    ensure_admin_users_exist(&snapshot, &static_handler)
+        .await
+        .expect("failed to get or create admin users");
+    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
+    update_store_cache_loop(store_cache.clone());
+
+    let static_handler = Arc::new(static_handler);
     loop {
         if let Ok((tcp_stream, remote_address)) = listener.accept().await {
             let store_cache = store_cache.clone();
@@ -220,6 +224,14 @@ async fn main() {
                                                 handle_api(request, store_cache).await,
                                             )
                                         } else {
+                                            if templates_path_prefix.matches(path) {
+                                                return Ok::<_, Infallible>(
+                                                    Response::builder()
+                                                        .status(StatusCode::FORBIDDEN)
+                                                        .body(Either::Right(Empty::new()))
+                                                        .unwrap(),
+                                                );
+                                            }
                                             if user_path_prefix.matches(path) {
                                                 if let Some(HTML) =
                                                     handler.entry(path).and_then(|it| {

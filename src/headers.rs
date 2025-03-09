@@ -383,6 +383,13 @@ pub(crate) fn headers_for_type(
             true,
             cors_origin,
         )),
+        "jinja" => Some(headers_and_compression(
+            Some(b"text/html"),
+            None,
+            false,
+            false,
+            None,
+        )),
         "307" => Some(headers_and_compression(
             None,
             Some(CACHE_CONTROL_REVALIDATE),

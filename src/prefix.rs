@@ -1,4 +1,4 @@
-use crate::env::ConfigurationKey::{ApiPathPrefix, UserPathPrefix};
+use crate::env::ConfigurationKey::{ApiPathPrefix, TemplatePathPrefix, UserPathPrefix};
 use crate::env::{ConfigurationKey, secret_value};
 use std::sync::LazyLock;
 
@@ -13,11 +13,16 @@ impl Prefix {
     }
 }
 
-pub(crate) static API_PATH_PREFIX: LazyLock<Prefix> = LazyLock::new(|| from_env(ApiPathPrefix));
+pub(crate) static API_PATH_PREFIX: LazyLock<Prefix> =
+    LazyLock::new(|| from_env(ApiPathPrefix, "/api/"));
 
-pub(crate) static USER_PATH_PREFIX: LazyLock<Prefix> = LazyLock::new(|| from_env(UserPathPrefix));
+pub(crate) static USER_PATH_PREFIX: LazyLock<Prefix> =
+    LazyLock::new(|| from_env(UserPathPrefix, "/user/"));
 
-fn from_env(key: ConfigurationKey) -> Prefix {
+pub(crate) static TEMPLATE_PATH_PREFIX: LazyLock<Prefix> =
+    LazyLock::new(|| from_env(TemplatePathPrefix, "/templates/"));
+
+fn from_env(key: ConfigurationKey, default: &'static str) -> Prefix {
     let with_trailing_slash = secret_value(key)
         .map(|prefix| {
             let prefix: &'static str = if prefix.ends_with("/") {
@@ -27,7 +32,7 @@ fn from_env(key: ConfigurationKey) -> Prefix {
             };
             prefix
         })
-        .unwrap_or("/user/");
+        .unwrap_or(default);
     Prefix {
         with_trailing_slash,
         without_trailing_slash: &with_trailing_slash[..with_trailing_slash.len() - 1],

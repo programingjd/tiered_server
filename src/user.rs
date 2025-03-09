@@ -1,5 +1,6 @@
-use crate::env::ConfigurationKey::{AdminUsers, IdentificationHashPrefix, UserPathPrefix};
+use crate::env::ConfigurationKey::{AdminUsers, IdentificationHashPrefix};
 use crate::env::secret_value;
+use crate::otp::Otp;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
 use ring::digest::{Context, SHA256};
@@ -7,14 +8,11 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use std::time::SystemTime;
+use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
 static IDENTIFICATION_HASH_PREFIX: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(IdentificationHashPrefix).unwrap_or("4*cf_@"));
-
-//noinspection SpellCheckingInspection
-static USER_HASH_PREFIX: LazyLock<&'static str> =
-    LazyLock::new(|| secret_value(UserPathPrefix).unwrap_or("k^dM>sq:Wzz"));
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) enum IdentificationMethod {
@@ -58,7 +56,7 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub(crate) async fn ensure_admin_users_exist(snapshot: &Snapshot) -> Option<()> {
+pub(crate) async fn ensure_admin_users_exist(snapshot: &Snapshot, handler: &Handler) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
     for user in value.split(";") {
         let mut iter = user.split(",");
@@ -76,7 +74,7 @@ pub(crate) async fn ensure_admin_users_exist(snapshot: &Snapshot) -> Option<()> 
         )
         .await
         {
-            todo!("send otp")
+            Otp::send(user, snapshot, handler).await?;
         }
     }
     Some(())

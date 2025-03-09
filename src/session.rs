@@ -23,8 +23,13 @@ pub(crate) const SID_EXPIRED: HeaderValue =
 
 pub(crate) enum SessionState {
     Missing,
-    Expired { user: User },
-    Valid { user: User },
+    Expired {
+        #[allow(dead_code)]
+        user: User,
+    },
+    Valid {
+        user: User,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

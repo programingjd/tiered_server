@@ -32,7 +32,7 @@ pub(crate) async fn handle_api_auth(
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
-    if let SessionState::Valid { user } =
+    if let SessionState::Valid { user: _user } =
         SessionState::from_headers(request.headers(), store_cache).await
     {
         if path == "/credential_creation_options" {

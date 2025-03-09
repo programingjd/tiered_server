@@ -1,13 +1,18 @@
-use crate::env::ConfigurationKey::OtpSigningKey;
+use crate::email::Email;
+use crate::env::ConfigurationKey::{
+    EmailNewCredentialsTemplate, EmailNewCredentialsTitle, OtpSigningKey,
+};
 use crate::env::secret_value;
-use crate::headers::{CLOUDFLARE_CDN_CACHE_CONTROL, GET};
+use crate::headers::GET;
+use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::store::Snapshot;
 use crate::user::{IdentificationMethod, User};
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ALLOW, HeaderValue};
+use hyper::header::{ALLOW, HeaderValue, LOCATION};
 use hyper::{Method, Request, Response, StatusCode};
+use minijinja::Environment;
 use pinboard::NonEmptyPinboard;
 use ring::hmac::{HMAC_SHA256, Key, sign};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -15,11 +20,21 @@ use serde::{Deserialize, Serialize};
 use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
+use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
 static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
     secret_value(OtpSigningKey).unwrap_or("A8UVAbg0L_ZCsirPCsdxqe5GmaFRa1NSfUkc3Evsu2k")
 });
+
+//noinspection SpellCheckingInspection
+static EMAIL_NEW_CREDENTIALS_TITLE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailNewCredentialsTitle));
+//noinspection SpellCheckingInspection
+static EMAIL_NEW_CREDENTIALS_TEMPLATE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailNewCredentialsTemplate));
+
+const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Otp {
@@ -29,18 +44,42 @@ pub(crate) struct Otp {
     timestamp: u32,
 }
 
+#[derive(Serialize)]
+struct NewCredentialsContext<'a> {
+    user: &'a User,
+    link_url: &'a str,
+}
+
 impl Otp {
-    pub(crate) async fn send(user: &User, snapshot: &Snapshot) -> Option<()> {
+    pub(crate) async fn send(user: User, snapshot: &Snapshot, handler: &Handler) -> Option<()> {
         let email = match &user.identification {
             IdentificationMethod::Email(email) => email.as_str(),
             _ => return None,
         };
-        let otp = Self::create(user, snapshot).await?;
+        let otp = Self::create(&user, snapshot).await?;
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
-        let url = format!("/api/otp/{id}.{signature}");
-        todo!()
+        let link_url = format!(
+            "{}otp/{id}.{signature}",
+            API_PATH_PREFIX.with_trailing_slash
+        );
+        let subject = (*EMAIL_NEW_CREDENTIALS_TITLE)?;
+        let template = (*EMAIL_NEW_CREDENTIALS_TEMPLATE)?;
+        let content = handler.entry(template)?.content.clone()?;
+        let jinja = from_utf8(content.as_ref()).ok()?;
+        let mut environment = Environment::new();
+        environment.add_template("new_credentials", jinja).ok()?;
+        let html_body = environment
+            .get_template("new_credentials")
+            .ok()?
+            .render(NewCredentialsContext {
+                user: &user,
+                link_url: link_url.as_str(),
+            })
+            .ok()?;
+        Email::send(email, subject, html_body.as_str()).await
     }
+
     async fn create(user: &User, snapshot: &Snapshot) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -67,8 +106,34 @@ impl Otp {
         Snapshot::set(key.as_str(), &otp).await?;
         Some(otp)
     }
+
     async fn remove_expired(snapshot: &Snapshot, user_id: Option<&str>) -> Option<()> {
-        todo!()
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32;
+        Snapshot::delete(
+            snapshot
+                .list::<Otp>("/opt/")
+                .filter_map(|(k, otp)| {
+                    let elapsed = timestamp - otp.timestamp;
+                    if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
+                        Some(k)
+                    } else {
+                        if let Some(user_id) = user_id {
+                            if otp.user_id == user_id {
+                                Some(k)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await
     }
 }
 
@@ -101,25 +166,27 @@ pub(crate) async fn handle_otp(
         if let Some(signed) = token_signature(token) {
             if signed.as_str() == signature {
                 if let Some(user) = validate_otp(token, store_cache).await {
-                    todo!("redirect to passkey creation page")
+                    if user.create_session().await.is_some() {
+                        let mut response = Response::builder();
+                        let headers = response.headers_mut().unwrap();
+                        headers.insert(
+                            LOCATION,
+                            HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
+                        );
+                        return response
+                            .status(StatusCode::TEMPORARY_REDIRECT)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
+                    };
                 };
             }
         }
     }
-    let mut response = Response::builder();
-    let headers = response.headers_mut().unwrap();
-    //noinspection SpellCheckingInspection
-    headers.insert(
-        from_utf8(CLOUDFLARE_CDN_CACHE_CONTROL).unwrap(),
-        HeaderValue::from_static("public,max-age=31536000,s-maxage=31536000,immutable"),
-    );
-    response
+    Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))
         .unwrap()
 }
-
-const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
 async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
     let key = format!("/otp/{token}");

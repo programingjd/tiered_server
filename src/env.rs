@@ -56,9 +56,15 @@ pub(crate) enum ConfigurationKey {
     OtpSigningKey,
     ApiPathPrefix,
     UserPathPrefix,
+    TemplatePathPrefix,
     LoginPath,
     IdentificationHashPrefix,
-    UserHashPrefix,
+    EmailApiEndpoint,
+    EmailApiAuthHeader,
+    EmailApiAuthToken,
+    EmailSendAddress,
+    EmailNewCredentialsTitle,
+    EmailNewCredentialsTemplate,
     AdminUsers,
 }
 
@@ -83,9 +89,15 @@ impl ConfigurationKey {
             Self::OtpSigningKey => "OTP_SIGNING_KEY",
             Self::ApiPathPrefix => "API_PATH_PREFIX",
             Self::UserPathPrefix => "USER_PATH_PREFIX",
+            Self::TemplatePathPrefix => "TEMPLATE_PATH_PREFIX",
             Self::LoginPath => "LOGIN_PATH",
             Self::IdentificationHashPrefix => "IDENTIFICATION_HASH_PREFIX",
-            Self::UserHashPrefix => "USER_HASH_PREFIX",
+            Self::EmailApiEndpoint => "EMAIL_API_ENDPOINT",
+            Self::EmailApiAuthHeader => "EMAIL_API_AUTH_HEADER",
+            Self::EmailApiAuthToken => "EMAIL_API_AUTH_TOKEN",
+            Self::EmailSendAddress => "EMAIL_SEND_ADDRESS",
+            Self::EmailNewCredentialsTitle => "EMAIL_NEW_CREDENTIALS_TITLE",
+            Self::EmailNewCredentialsTemplate => "EMAIL_NEW_CREDENTIALS_TEMPLATE",
             Self::AdminUsers => "ADMIN_USERS",
         }
     }

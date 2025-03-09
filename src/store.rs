@@ -25,6 +25,7 @@ use tokio::time::{MissedTickBehavior, interval};
 
 pub(crate) struct Snapshot {
     entries: HashMap<String, Entry>,
+    #[allow(dead_code)]
     timestamp: u32,
 }
 
@@ -92,6 +93,21 @@ impl Snapshot {
             let nonce: [u8; 12] = payload[0..12].try_into().unwrap();
             let encrypted_base64 = &payload[12..];
             decrypt(nonce, encrypted_base64)
+        })
+    }
+    pub(crate) fn list<T: DeserializeOwned>(
+        &self,
+        prefix: &'static str,
+    ) -> impl Iterator<Item = (&str, T)> {
+        self.entries.iter().filter_map(move |(k, v)| {
+            if k.starts_with(prefix) {
+                let payload = v.data.as_slice();
+                let nonce: [u8; 12] = payload[0..12].try_into().unwrap();
+                let encrypted_base64 = &payload[12..];
+                decrypt(nonce, encrypted_base64).map(|it| (k.as_str(), it))
+            } else {
+                None
+            }
         })
     }
     pub(crate) async fn set<T: Serialize>(path: &str, data: &T) -> Option<()> {
