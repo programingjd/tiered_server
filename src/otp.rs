@@ -119,16 +119,14 @@ impl Otp {
                     let elapsed = timestamp - otp.timestamp;
                     if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
                         Some(k)
-                    } else {
-                        if let Some(user_id) = user_id {
-                            if otp.user_id == user_id {
-                                Some(k)
-                            } else {
-                                None
-                            }
+                    } else if let Some(user_id) = user_id {
+                        if otp.user_id == user_id {
+                            Some(k)
                         } else {
                             None
                         }
+                    } else {
+                        None
                     }
                 })
                 .collect::<Vec<_>>(),
