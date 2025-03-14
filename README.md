@@ -70,7 +70,7 @@ specify the encryption parameters with the variables:
 You also need to specify what service to use to send messages to users for registering an account or resetting their
 credentials with the variables:
 
-- `EMAIL_API_ENDPOINT` (defaults to "https://smtp.maileroo.com/send")
+- `EMAIL_API_ENDPOINT` (defaults to `https://smtp.maileroo.com/send`)
 - `EMAIL_API_AUTH_HEADER`
 - `EMAIL_API_AUTH_TOKEN`
 - `EMAIL_API_METHOD` (defaults to `POST`)
@@ -79,9 +79,11 @@ credentials with the variables:
 - `EMAIL_NEW_CREDENTIALS_TITLE`
 - `EMAIL_NEW_CREDENTIALS_TEMPLATE` (should be under the template prefix)
 
+<br>
 ---
+<br>
 
-S3 object storage
+### S3 object storage
 
 session ids are under `/sid`:
 
@@ -101,6 +103,10 @@ passkeys are under `/pk`:
 /pk/{identity_hash}/{user_id} -> {user}
 /pk/{identity_hash}/{user_id}/{passkey} -> {}
 ```
+
+<br>
+---
+<br>
 
 ### Connection
 
