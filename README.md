@@ -25,7 +25,7 @@ You need to specify where those templates are with the variable:
 
 <br>
 
-The server is meant to be behind Cloudflare CDN.
+The server is meant to be behind the Cloudflare CDN.<br>
 You need to register the apex domain and its `www` subdomain with Cloudflare, and specify the apex domain with the
 variable:
 
