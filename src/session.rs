@@ -19,7 +19,7 @@ pub(crate) static LOGIN_PATH: LazyLock<&str> =
     LazyLock::new(|| secret_value(LoginPath).unwrap_or("/login"));
 
 pub(crate) const SID_EXPIRED: HeaderValue =
-    HeaderValue::from_static("st=0; Secure; SameSite=Strict");
+    HeaderValue::from_static("st=0; Secure; SameSite=Strict; Max-Age=34560000");
 
 pub(crate) enum SessionState {
     Missing,

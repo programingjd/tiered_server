@@ -200,9 +200,12 @@ async fn main() {
                 if let Ok(start_handshake) = acceptor.await {
                     let client_hello = &start_handshake.client_hello();
                     let ip = remote_address.ip();
+                    // webhook calls should all originate from GitHub servers
                     let is_webhook = if firewall.get_ref().accept(ip, Some(client_hello)) {
                         false
-                    } else if webhook_firewall.get_ref().accept(ip, Some(client_hello)) {
+                    }
+                    // all other requests should original from Cloudflare servers
+                    else if webhook_firewall.get_ref().accept(ip, Some(client_hello)) {
                         true
                     } else {
                         return;
@@ -217,13 +220,19 @@ async fn main() {
                                     let store_cache = store_cache.clone();
                                     async move {
                                         let path = request.uri().path();
+                                        // webhook call from the GitHub repository that notifies
+                                        // that the static content should be updated
                                         if is_webhook {
                                             Ok::<_, Infallible>(handle_webhook(request).await)
-                                        } else if api_path_prefix.matches(path) {
+                                        }
+                                        // api requests
+                                        else if api_path_prefix.matches(path) {
                                             Ok::<_, Infallible>(
                                                 handle_api(request, store_cache).await,
                                             )
                                         } else {
+                                            // the templates should not be accessible even though
+                                            // they are in the static content
                                             if templates_path_prefix.matches(path) {
                                                 return Ok::<_, Infallible>(
                                                     Response::builder()
@@ -233,6 +242,7 @@ async fn main() {
                                                 );
                                             }
                                             if user_path_prefix.matches(path) {
+                                                // user scoped html pages that require login
                                                 if let Some(HTML) =
                                                     handler.entry(path).and_then(|it| {
                                                         it.headers.iter().find_map(|it| {
@@ -260,6 +270,8 @@ async fn main() {
                                                             return Ok(response);
                                                         }
                                                         SessionState::Missing => {
+                                                            // `sid` cookie with session_id is missing
+                                                            // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
                                                                     let mut response =
@@ -295,6 +307,7 @@ async fn main() {
                                                     }
                                                 }
                                             }
+                                            // static content
                                             Ok::<_, Infallible>(
                                                 handler.handle_hyper_request(request),
                                             )

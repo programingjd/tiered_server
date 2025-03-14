@@ -1,24 +1,92 @@
-#
+### Rust http server with static content and user protected content.
 
-object storage
+The server is set up so that it doesn't require disk access.
+
+The static content comes from a GitHub repository.<br>
+[zip_static_handler](https://crates.io/crates/zip_static_handler) is used for that purpose.<br>
+The [project page](https://github.com/programingjd/zip_static_handler) details the conventions for directory indices and
+redirects.
+Which repository is used is configurable with the environment variables:
+
+- `STATIC_GITHUB_USER`
+- `STATIC_GITHUB_REPOSITORY`
+- `STATIC_GITHUB_BRANCH`
+
+You can also set up a webhook to notify the server when the content has changed and needs to be updated.
+You can do that with a GitHub push webhook (you can use any path, the server ignores it). You need to specify the token
+with the variable:
+
+- `STATIC_GITHUB_WEBHOOK_TOKEN`
+
+Part of the static content should include templates for the messages sent for account creation and credentials resets.
+You need to specify where those templates are with the variable:
+
+- `TEMPLATE_PATH_PREFIX`
+
+<br>
+
+The server is meant to be behind Cloudflare CDN.
+You need to register the apex domain and its `www` subdomain with Cloudflare, and specify the apex domain with the
+variable:
+
+- `DOMAIN_APEX`
+
+There's a built-in firewall that terminates the connections unless they come
+from either one of Cloudflare CDN servers or one of the GitHub webook servers for the update webhook.
+
+The server is HTTPS only and the certificate is self-signed.
+
+<br>
+
+You need to specify a prefix for the static content that is scoped to the user and require the user to the logged in,
+and you also need to specify the path for the login page.
+
+- `USER_PATH_PREFIX`
+- `LOGIN_PATH`
+
+You also need to reserve a prefix for the API, and specify what it is with the variable:
+
+- `API_PATH_PREFIX`
+
+<br>
+
+The user data is stored in an S3 bucket. You need to provide the information needed to access it:
+
+- `S3_REGION`
+- `S3_ENDPOINT`
+- `S3_BUCKET`
+- `S3_ACCESS_KEY`
+- `S3_SECRET_KEY`
+
+<br>
+
+You also need to specify what service to use to send messages to users for registering an account or resetting their
+credentials with the variables:
+
+- `EMAIL_API_ENDPOINT`
+- `EMAIL_API_AUTH_HEADER`
+- `EMAIL_API_AUTH_TOKEN`
+- `EMAIL_API_METHOD`
+- `EMAIL_API_REQUEST_CONTENT_TYPE`
+- `EMAIL_SEND_ADDRESS`
+- `EMAIL_NEW_CREDENTIALS_TITLE`
+- `EMAIL_NEW_CREDENTIALS_TEMPLATE`
+
+---
+
+S3 object storage
 
 ```
-/
-  sid
-    {session_id} -> (user_id,identity_hash,timestamp)
-    ...
-  otp
-    {otp_token} -> (user_id,identity_hash,timestamp)
-    ...  
-  pk
-    {identity_hash}
-      {user_id} -> {user}
-        {passkey}
-        {passkey}
-    ...
+/sid/{session_id} -> (user_id,identity_hash,timestamp)
+  ...
+/otp/{otp_token} -> (user_id,identity_hash,timestamp)
+  ...  
+/pk/{identity_hash}/{user_id} -> {user}
+/pk/{identity_hash}/{user_id}/{passkey} -> {}
+  ...
 ```
 
-### Sessions
+### Connection
 
 ```mermaid
 graph TD;
@@ -40,21 +108,18 @@ graph TD;
 Two cookies are used, one for the server and one for javascript:
 
 - `st` (accessible from javascript)<br>
-  contains the connection expiration timestamp (millis)
+  contains the connection expiration timestamp
 
 - `sid`
   *http-only (not accessible from javascript)*<br>
   contains the session id
 
-Both cookies have the maximum lifespan because they don't include any sensitive information.
+Both cookies have the maximum lifespan (400 days) because they don't include any sensitive information.
 
 API requests return `403 FORBIDDEN` if the session id from the `sid` cookie is missing or expired.
 
 For user scoped html pages, the server first checks if the `sid` cookie exists and refers to an
-existing session id with user info (but it might be expired).<br>
-If it doesn't, the server redirects to the login page.<br>
-If it does, it updates the `st` cookie with the connection expiration timestamp.
-That connection might already be expired.
+existing session id with user info (but it might be expired).
 
 The page (javascript) should look for the `st` cookie.<br>
 If it's expired (or missing), the page should trigger the passkey authorization flow to reconnect
