@@ -43,7 +43,7 @@ Two cookies are used, one for the server and one for javascript:
   contains the connection expiration timestamp (millis)
 
 - `sid`
-  *http-only*<br>
+  *http-only (not accessible from javascript)*<br>
   contains the session id
 
 Both cookies have the maximum lifespan because they don't include any sensitive information.
