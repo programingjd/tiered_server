@@ -38,7 +38,7 @@ The server is HTTPS only and the certificate is self-signed.
 
 <br>
 
-You need to specify a prefix for the static content that is scoped to the user and require the user to the logged in,
+You need to specify a prefix for the static content that is scoped to the user and require the user to be logged in,
 and you also need to specify the path for the login page.
 
 - `USER_PATH_PREFIX`
@@ -57,6 +57,13 @@ The user data is stored in an S3 bucket. You need to provide the information nee
 - `S3_BUCKET`
 - `S3_ACCESS_KEY`
 - `S3_SECRET_KEY`
+
+That content is encrypted so that the information stays safe even if access to the bucket is obtained. You should
+specify the encryption parameters with the variables:
+
+- `STORE_ENCRYPTION_KEY`
+- `OTP_SIGNING_KEY`
+- `IDENTIFICATION_HASH_PREFIX`
 
 <br>
 
