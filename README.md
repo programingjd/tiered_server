@@ -37,20 +37,33 @@ graph TD;
   N -- No --> G
 ```
 
-Two session cookies are used, one for the server and one for javascript:
+Two cookies are used, one for the server and one for javascript:
 
-- `st`  
-  contains the session expiration timestamp (millis)
+- `st`
+  contains the connection expiration timestamp (millis)
 
 - `sid`
   *http-only*<br>
   contains the session id
 
-API requests return `403 FORBIDDEN` if `sid` is missing or expired.
+Both cookies have the maximum lifespan because they don't include any sensitive information.
 
-For user scoped html pages, the server first checks if the `sid` exists and has user info, and if not redirects to the
-login page.
+API requests return `403 FORBIDDEN` if the session id from the `sid` cookie is missing or expired.
 
-The page itself should check the `st` cookie and if missing or expired, it should trigger the passkey auth.
+For user scoped html pages, the server first checks if the `sid` cookie exists and refers to an
+existing session id with user info (but it might be expired).<br>
+If it doesn't, the server redirects to the login page.<br>
+If it does, it updates the `st` cookie with the connection expiration timestamp.
+That connection might already be expired.
 
+The page (javascript) should look for the `st` cookie.<br>
+If it's expired (or missing), the page should trigger the passkey authorization flow to reconnect
+the user. Otherwise, api calls will fail because the connection has expired.
+
+The passkey authorization flow is as follows:
+
+- the page requests the challenge from the server
+- the server retrieves the user info from the session id (from the `sid` cookie value).
+  if this fails then the server returns an error, otherwise, it returns the challenge.
+- ...
 
