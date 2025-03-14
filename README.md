@@ -21,7 +21,7 @@ with the variable:
 Part of the static content should include templates for the messages sent for account creation and credentials resets.
 You need to specify where those templates are with the variable:
 
-- `TEMPLATE_PATH_PREFIX`
+- `TEMPLATE_PATH_PREFIX` (defaults to `/templates` if not set)
 
 <br>
 
@@ -29,7 +29,7 @@ The server is meant to be behind the Cloudflare CDN.<br>
 You need to register the apex domain and its `www` subdomain with Cloudflare, and specify the apex domain with the
 variable:
 
-- `DOMAIN_APEX`
+- `DOMAIN_APEX` (e.g. `example.com`)
 
 There's a built-in firewall that terminates the connections unless they come
 from either one of Cloudflare CDN servers or one of the GitHub webook servers for the update webhook.
@@ -41,12 +41,12 @@ The server is HTTPS only and the certificate is self-signed.
 You need to specify a prefix for the static content that is scoped to the user and require the user to be logged in,
 and you also need to specify the path for the login page.
 
-- `USER_PATH_PREFIX`
-- `LOGIN_PATH`
+- `USER_PATH_PREFIX` (defaults to `/user` if not set)
+- `LOGIN_PATH` (defaults to `/login` if not set)
 
 You also need to reserve a prefix for the API, and specify what it is with the variable:
 
-- `API_PATH_PREFIX`
+- `API_PATH_PREFIX` (defaults to `/api` if not set)
 
 <br>
 
@@ -61,36 +61,45 @@ The user data is stored in an S3 bucket. You need to provide the information nee
 That content is encrypted so that the information stays safe even if access to the bucket is obtained. You should
 specify the encryption parameters with the variables:
 
-- `STORE_ENCRYPTION_KEY`
-- `OTP_SIGNING_KEY`
-- `IDENTIFICATION_HASH_PREFIX`
+- `STORE_ENCRYPTION_KEY` (32 bytes base64-encoded with no padding)
+- `OTP_SIGNING_KEY` (32 bytes base64-encoded with no padding)
+- `IDENTIFICATION_HASH_PREFIX` (e.g. `my_prefix_for_id_hashes_`)
 
 <br>
 
 You also need to specify what service to use to send messages to users for registering an account or resetting their
 credentials with the variables:
 
-- `EMAIL_API_ENDPOINT`
+- `EMAIL_API_ENDPOINT` (defaults to "https://smtp.maileroo.com/send")
 - `EMAIL_API_AUTH_HEADER`
 - `EMAIL_API_AUTH_TOKEN`
-- `EMAIL_API_METHOD`
-- `EMAIL_API_REQUEST_CONTENT_TYPE`
-- `EMAIL_SEND_ADDRESS`
+- `EMAIL_API_METHOD` (defaults to `POST`)
+- `EMAIL_API_REQUEST_CONTENT_TYPE` (defaults to `multipart/form-data`)
+- `EMAIL_SEND_ADDRESS` (e.g. `noreply@example.com`)
 - `EMAIL_NEW_CREDENTIALS_TITLE`
-- `EMAIL_NEW_CREDENTIALS_TEMPLATE`
+- `EMAIL_NEW_CREDENTIALS_TEMPLATE` (should be under the template prefix)
 
 ---
 
 S3 object storage
 
+session ids are under `/sid`:
+
 ```
 /sid/{session_id} -> (user_id,identity_hash,timestamp)
-  ...
+```
+
+one-time login tokens are under `/otp`:
+
+```
 /otp/{otp_token} -> (user_id,identity_hash,timestamp)
-  ...  
+```
+
+passkeys are under `/pk`:
+
+```
 /pk/{identity_hash}/{user_id} -> {user}
 /pk/{identity_hash}/{user_id}/{passkey} -> {}
-  ...
 ```
 
 ### Connection
