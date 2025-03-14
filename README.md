@@ -80,7 +80,9 @@ credentials with the variables:
 - `EMAIL_NEW_CREDENTIALS_TEMPLATE` (should be under the template prefix)
 
 <br>
+
 ---
+
 <br>
 
 ### S3 object storage
@@ -105,7 +107,9 @@ passkeys are under `/pk`:
 ```
 
 <br>
+
 ---
+
 <br>
 
 ### Connection
