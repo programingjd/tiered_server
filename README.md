@@ -106,6 +106,12 @@ passkeys are under `/pk`:
 /pk/{identity_hash}/{user_id}/{passkey} -> {}
 ```
 
+registrations pending approval are under `/reg`:
+
+```
+/reg/{user_id} -> {user}
+```
+
 <br>
 
 ---
@@ -144,11 +150,12 @@ Both cookies have the maximum lifespan (400 days) because they don't include any
 
 API requests return `403 FORBIDDEN` if the session id from the `sid` cookie is missing or expired.
 
-For user scoped html pages, the server first checks if the `sid` cookie exists and refers to an
+For user-scoped html pages, the server first checks if the `sid` cookie exists and refers to an
 existing session id with user info (but it might be expired).
 
 The page (javascript) should look for the `st` cookie.<br>
-If it's expired (or missing), the page should trigger the passkey authorization flow to reconnect
+If its value indicates that the connection has expired (or the cookie is missing),
+the page should trigger the passkey authorization flow to reconnect
 the user. Otherwise, api calls will fail because the connection has expired.
 
 The passkey authorization flow is as follows:
@@ -157,4 +164,74 @@ The passkey authorization flow is as follows:
 - the server retrieves the user info from the session id (from the `sid` cookie value).
   if this fails then the server returns an error, otherwise, it returns the challenge.
 - ...
+
+<br>
+
+---
+
+<br>
+
+### User account
+
+User data required for creating an account:
+
+first name
+last name
+date of birth
+identification (email or phone number)
+
+Once all this information is gathered, the server generates a unique user id
+and creates a new entry under `/pk` with the identity hash as the key and the user data for the value.
+The identity hash is the salted hash of the identification method (email or phone number).
+
+The server then creates a unique otp id. It is then stored in `/otp` with the id as the key,
+and a value containing the user id, identity hash and a timestamp.
+A link with the id and its signature is then sent to the identification method,
+instructing the user to click on it to create credentials.
+
+Once the server receives a request for that link, it checks the otp id signature,
+and if the otp exists and its timestamp indicates that it hasn't expired.
+If all that is true, it generates a new unique session id and stores it under `/sid`
+with the session id as the key, and the user id, identity hash and a timestamp for the value.
+The response also sets the two session cookies. The user is now logged in.
+
+The server redirects to the user home page.
+
+<br>
+
+---
+
+<br>
+
+### Login page
+
+The login page handles both login and new credential requests.
+
+Just like all user-scoped pages, the login should trigger the passkey authorization flow
+if the `st` cookie is missing or its value indicates that the connection expired.
+Otherwise, it just redirects to the user home page.
+
+If the passkey flow fails because there's no session id, then the user is prompted to enter
+its identification method (email or phone number), first name, last name and date of birth.
+
+Once the server receives this information, it checks if there's already a matching account.<br>
+If there is then an otp is sent to the identification method (see the user account section
+to see how the otp login is handled).<br>
+
+If there is no matching account, then a new account needs to be created.
+
+If the variable `VALIDATION_TOKEN` is set, then it means that registrations needs to be
+approved unless this validation token is sent alongside the user information.
+
+Cloudflare Turnstile is also supported if the variable `TURNSTILE_SECRET_KEY` is set.
+
+If no validation is required (the variable is not set, or the validation token matches,
+and if Turnstile is disabled or the validation succeeded), then the account is created.
+See the user account section for more details.
+
+If validation is required, a unique user id is created and stored under `/reg`
+with the user id as the key and the user information as the value.<br>
+There should be an admin page to validate or discard those requests.
+
+
 
