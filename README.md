@@ -39,7 +39,7 @@ graph TD;
 
 Two cookies are used, one for the server and one for javascript:
 
-- `st`
+- `st` (accessible from javascript)<br>
   contains the connection expiration timestamp (millis)
 
 - `sid`
