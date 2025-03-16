@@ -1,44 +1,18 @@
-use crate::env::ConfigurationKey::{AdminUsers, IdentificationHashPrefix};
+use crate::env::ConfigurationKey::AdminUsers;
 use crate::env::secret_value;
 use crate::otp::Otp;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
-use ring::digest::{Context, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 use std::time::SystemTime;
 use zip_static_handler::handler::Handler;
-
-//noinspection SpellCheckingInspection
-static IDENTIFICATION_HASH_PREFIX: LazyLock<&'static str> =
-    LazyLock::new(|| secret_value(IdentificationHashPrefix).unwrap_or("4*cf_@"));
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) enum IdentificationMethod {
     Email(String),
     Sms(String),
     NotSet,
-}
-
-impl IdentificationMethod {
-    pub(crate) fn hash(&self) -> String {
-        let mut digest = Context::new(&SHA256);
-        digest.update(IDENTIFICATION_HASH_PREFIX.as_bytes());
-        match self {
-            Self::Email(address) => {
-                digest.update("email:".as_bytes());
-                digest.update(address.as_bytes());
-            }
-            Self::Sms(number) => {
-                digest.update("sms:".as_bytes());
-                digest.update(number.as_bytes());
-            }
-            Self::NotSet => digest.update("none".as_bytes()),
-        }
-        let hash = digest.finish();
-        URL_SAFE_NO_PAD.encode_to_string(hash.as_ref())
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -104,8 +78,7 @@ impl User {
                 .collect::<Vec<_>>(),
         );
         let identification = IdentificationMethod::Email(email);
-        let hash = identification.hash();
-        let key = format!("/pk/{hash}");
+        let key = format!("/pk/{id}");
         if store_cache.get::<User>(key.as_str()).is_some() {
             return None;
         }

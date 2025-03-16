@@ -24,15 +24,13 @@ pub(crate) async fn handle_reg(
     if let SessionState::Valid { user } =
         SessionState::from_headers(request.headers(), &store_cache).await
     {
-        if path == "/code" {
-            if user.admin {
-                if let Some(secret) = *VALIDATION_TOTP_SECRET {
-                    return Response::builder()
-                        .status(StatusCode::OK)
-                        .header(CONTENT_TYPE, TEXT)
-                        .body(Either::Left(Full::from(secret)))
-                        .unwrap();
-                }
+        if path == "/code" && user.admin {
+            if let Some(secret) = *VALIDATION_TOTP_SECRET {
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, TEXT)
+                    .body(Either::Left(Full::from(secret)))
+                    .unwrap();
             }
         }
     }

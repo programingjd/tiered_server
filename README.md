@@ -63,7 +63,7 @@ specify the encryption parameters with the variables:
 
 - `STORE_ENCRYPTION_KEY` (32 bytes base64-encoded with no padding)
 - `OTP_SIGNING_KEY` (32 bytes base64-encoded with no padding)
-- `IDENTIFICATION_HASH_PREFIX` (e.g. `my_prefix_for_id_hashes_`)
+- `CHALLENGE_SIGNING_KEY` (32 bytes base64-encoded with no padding)
 
 <br>
 
@@ -90,20 +90,20 @@ credentials with the variables:
 session ids are under `/sid`:
 
 ```
-/sid/{session_id} -> (user_id,identity_hash,timestamp)
+/sid/{session_id} -> (user_id,timestamp)
 ```
 
 one-time login tokens are under `/otp`:
 
 ```
-/otp/{otp_token} -> (user_id,identity_hash,timestamp)
+/otp/{otp_token} -> (user_id,timestamp)
 ```
 
 passkeys are under `/pk`:
 
 ```
-/pk/{identity_hash}/{user_id} -> {user}
-/pk/{identity_hash}/{user_id}/{passkey} -> {}
+/pk/{user_id} -> {user}
+/pk/{user_id}/{passkey_id} -> {passkey}
 ```
 
 registrations pending approval are under `/reg`:

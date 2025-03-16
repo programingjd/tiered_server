@@ -22,6 +22,11 @@ version = "0.17"
 default-features = false
 features = ["std", "less-safe-getrandom-custom-or-rdrand"]
 
+[dependencies.coset]
+version = "0.3"
+default-features = false
+features = ["std"]
+
 [dependencies.totp_rfc6238]
 version = "0.6"
 default-features = false

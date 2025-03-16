@@ -40,7 +40,6 @@ const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 pub(crate) struct Otp {
     id: String,
     user_id: String,
-    identity_hash: String,
     timestamp: u32,
 }
 
@@ -99,7 +98,6 @@ impl Otp {
         let otp = Self {
             id,
             user_id: user.id.clone(),
-            identity_hash: user.identification.hash(),
             timestamp,
         };
         let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
@@ -198,7 +196,7 @@ async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) ->
     if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
         None
     } else {
-        let key = format!("/pk/{}/{}", otp.identity_hash, otp.user_id);
+        let key = format!("/pk/{}", otp.user_id);
         let user = snapshot.get_ref().get(key.as_str())?;
         Some(user)
     }

@@ -1,8 +1,14 @@
-use crate::DOMAIN_TITLE;
+use crate::env::ConfigurationKey::ChallengeSigningKey;
+use crate::env::secret_value;
 use crate::session::SessionState;
 use crate::store::Snapshot;
-use crate::user::{IdentificationMethod, User};
+use crate::user::User;
+use crate::{DOMAIN_APEX, DOMAIN_TITLE};
 use base64_simd::URL_SAFE_NO_PAD;
+use coset::iana::{
+    Algorithm, Ec2KeyParameter, EllipticCurve, EnumI64, KeyType, OkpKeyParameter, RsaKeyParameter,
+};
+use coset::{CborSerializable, CoseKey, Label, RegisteredLabel, RegisteredLabelWithPrivate};
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::CONTENT_TYPE;
@@ -10,9 +16,19 @@ use hyper::http::HeaderValue;
 use hyper::{Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
+use ring::digest::{SHA256, digest};
+use ring::hmac::{HMAC_SHA256, Key, Tag, sign};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+use std::time::SystemTime;
+
+//noinspection SpellCheckingInspection
+static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
+    secret_value(ChallengeSigningKey).unwrap_or("4nyZsaw5j1JxMy38uIj5sxHucy7Dh_6KTqQWFq2x94g")
+});
+
+const CHALLENGE_VALIDITY_DURATION: u32 = 30; // 30 secs
 
 #[derive(Serialize)]
 struct Credentials {
@@ -32,7 +48,7 @@ impl Credentials {
 
 #[derive(Serialize)]
 struct PubKeyCredParams {
-    alg: i8,
+    alg: i16,
     #[serde(rename = "type")]
     typ: &'static str,
 }
@@ -41,6 +57,18 @@ impl PubKeyCredParams {
     pub fn ed25519() -> Self {
         Self {
             alg: -8,
+            typ: "public-key",
+        }
+    }
+    pub fn es256() -> Self {
+        Self {
+            alg: -7,
+            typ: "public-key",
+        }
+    }
+    pub fn rs256() -> Self {
+        Self {
+            alg: -257,
             typ: "public-key",
         }
     }
@@ -94,12 +122,155 @@ struct CredentialRequestOptions {
     allow_credentials: Vec<Credentials>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Passkey {
-    id: String,
+#[derive(Deserialize)]
+struct ClientData<'a> {
+    challenge: &'a [u8],
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(tag = "type")]
+enum PassKey {
+    ED25519 { material: String, id: String },
+    ES256 { material: String, id: String },
+    RS256 { material: String, id: String },
+}
+
+impl PassKey {
+    fn into_id(self) -> String {
+        match self {
+            PassKey::ED25519 { id, .. } => id,
+            PassKey::ES256 { id, .. } => id,
+            PassKey::RS256 { id, .. } => id,
+        }
+    }
+    fn id(&self) -> &str {
+        match self {
+            PassKey::ED25519 { id, .. } => id.as_str(),
+            PassKey::ES256 { id, .. } => id.as_str(),
+            PassKey::RS256 { id, .. } => id.as_str(),
+        }
+    }
+    fn ed25519(id: String, bytes: &[u8]) -> Self {
+        Self::ED25519 {
+            id,
+            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+        }
+    }
+    fn es256(id: String, bytes: &[u8]) -> Self {
+        Self::ES256 {
+            id,
+            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+        }
+    }
+    fn rsa256(id: String, bytes: &[u8]) -> Self {
+        Self::RS256 {
+            id,
+            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+        }
+    }
+    fn sign(self, _authenticator_data: &[u8], _client_data_hash: &[u8]) -> Vec<u8> {
+        todo!()
+    }
+    fn new(id: String, alg: i16, cose: &[u8]) -> Option<Self> {
+        match alg {
+            -8 | -7 | -257 => {}
+            _ => return None,
+        }
+        let key = CoseKey::from_slice(cose).ok()?;
+        if let (RegisteredLabel::Assigned(key_type), RegisteredLabelWithPrivate::Assigned(alg)) =
+            (key.kty, key.alg?)
+        {
+            match (key_type, alg) {
+                (KeyType::OKP, Algorithm::EdDSA) => {
+                    let crv: Option<u64> = key.params.iter().find_map(|(k, v)| {
+                        if k == &Label::Int(OkpKeyParameter::Crv.to_i64()) {
+                            v.as_integer().and_then(|it| it.try_into().ok())
+                        } else {
+                            None
+                        }
+                    });
+                    if crv == Some(EllipticCurve::Ed25519 as u64) {
+                        if let Some(d) = key.params.iter().find_map(|(k, v)| {
+                            if k == &Label::Int(OkpKeyParameter::D.to_i64()) {
+                                v.as_bytes().map(|it| it.as_slice())
+                            } else {
+                                None
+                            }
+                        }) {
+                            return Some(PassKey::ed25519(id, d));
+                        }
+                    }
+                }
+                (KeyType::EC2, Algorithm::ES256) => {
+                    let crv: Option<u64> = key.params.iter().find_map(|(k, v)| {
+                        if k == &Label::Int(Ec2KeyParameter::Crv.to_i64()) {
+                            v.as_integer().and_then(|it| it.try_into().ok())
+                        } else {
+                            None
+                        }
+                    });
+                    if crv == Some(EllipticCurve::P_256 as u64) {
+                        if let Some(d) = key.params.iter().find_map(|(k, v)| {
+                            if k == &Label::Int(Ec2KeyParameter::D.to_i64()) {
+                                v.as_bytes().map(|it| it.as_slice())
+                            } else {
+                                None
+                            }
+                        }) {
+                            return Some(PassKey::es256(id, d));
+                        }
+                    }
+                }
+                (KeyType::RSA, Algorithm::RS256) => {
+                    let e: Option<u32> = key.params.iter().find_map(|(k, v)| {
+                        if k == &Label::Int(RsaKeyParameter::E.to_i64()) {
+                            v.as_bytes().map(|it| {
+                                let mut bytes = [0u8; 4];
+                                bytes[8 - it.len()..].copy_from_slice(it.as_slice());
+                                u32::from_be_bytes(bytes)
+                            })
+                        } else {
+                            None
+                        }
+                    });
+                    if e == Some(65537) {
+                        if let Some(n) = key.params.iter().find_map(|(k, v)| {
+                            if k == &Label::Int(RsaKeyParameter::N.to_i64()) {
+                                v.as_bytes().map(|it| it.as_slice())
+                            } else {
+                                None
+                            }
+                        }) {
+                            return Some(PassKey::rsa256(id, n));
+                        }
+                    }
+                }
+                _ => return None,
+            }
+        }
+        None
+    }
 }
 
 const JSON: HeaderValue = HeaderValue::from_static("application/json");
+
+fn challenge_signature(challenge: &[u8]) -> Tag {
+    let key = Key::new(HMAC_SHA256, SIGNING_KEY.as_bytes());
+    sign(&key, challenge)
+}
+
+fn new_challenge() -> [u8; 68] {
+    let mut challenge = [0u8; 68];
+    SystemRandom::new().fill(&mut challenge[..32]).unwrap();
+    let timestamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+    challenge[32..36].copy_from_slice(timestamp.to_be_bytes().as_slice());
+    let signature = challenge_signature(&challenge[..36]);
+    challenge[36..].copy_from_slice(signature.as_ref());
+    challenge
+}
 
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
@@ -112,85 +283,43 @@ pub(crate) async fn handle_auth(
         _ => None,
     };
     if path == "/credential_creation_options" {
-        if let Some(boundary) = request
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|it| it.to_str().ok())
-            .and_then(|it| parse_boundary(it).ok())
-        {
-            let mut multipart = Multipart::with_constraints(
-                request.into_body().into_data_stream(),
-                boundary,
-                Constraints::new().size_limit(SizeLimit::new().whole_stream(1024)),
-            );
-            let mut email = None;
-            let mut first_name = None;
-            while let Ok(Some(field)) = multipart.next_field().await {
-                match field.name() {
-                    Some("email") => {
-                        if let Ok(it) = field.text().await {
-                            email = Some(it)
-                        }
-                    }
-                    Some("first_name") => {
-                        if let Ok(it) = field.text().await {
-                            first_name = Some(it)
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            if let Some(email) = email {
-                let identification = IdentificationMethod::Email(email);
-                let prefix = format!("/pk/{}/", identification.hash());
-                let cache = store_cache.get_ref();
-                let mut users = cache.list::<User>(&prefix).filter_map(|(_id, ref user)| {
-                    if first_name.is_none() || first_name.as_deref() == Some(&user.first_name) {
-                        Some(user.clone())
-                    } else {
-                        None
-                    }
-                });
-                if let Some(user) = users.next() {
-                    if users.next().is_none() {
-                        let keys = store_cache
-                            .get_ref()
-                            .list::<Passkey>(&format!("{}{}/", prefix, user.id))
-                            .map(|(_, Passkey { id, .. })| Credentials::from_id(id))
-                            .collect::<Vec<_>>();
-                        let mut challenge = [0u8; 32];
-                        SystemRandom::new().fill(&mut challenge).unwrap();
-                        let credential_creation = CredentialCreationOptions {
-                            challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-                            exclude_credentials: keys,
-                            pub_key_cred_params: vec![PubKeyCredParams::ed25519()],
-                            rp: Rp::default(),
-                            user: UserId::from(&user),
-                        };
-                        return Response::builder()
-                            .status(StatusCode::OK)
-                            .header(CONTENT_TYPE, JSON)
-                            .body(Either::Left(Full::from(
-                                serde_json::to_vec(&credential_creation).unwrap(),
-                            )))
-                            .unwrap();
-                    }
-                }
-            }
+        if let Some(user) = user {
+            let keys = store_cache
+                .get_ref()
+                .list::<PassKey>(&format!("/pk/{}/", user.id))
+                .map(|(_, key)| Credentials::from_id(key.into_id()))
+                .collect::<Vec<_>>();
+            let challenge = new_challenge();
+            let credential_creation = CredentialCreationOptions {
+                challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
+                exclude_credentials: keys,
+                pub_key_cred_params: vec![
+                    PubKeyCredParams::ed25519(),
+                    PubKeyCredParams::es256(),
+                    PubKeyCredParams::rs256(),
+                ],
+                rp: Rp::default(),
+                user: UserId::from(&user),
+            };
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, JSON)
+                .body(Either::Left(Full::from(
+                    serde_json::to_vec(&credential_creation).unwrap(),
+                )))
+                .unwrap();
         }
     } else if path == "/credential_request_options" {
         let keys = user
             .map(|user| {
                 store_cache
                     .get_ref()
-                    .list::<Passkey>(&format!("/pk/{}/{}/", user.identification.hash(), user.id))
-                    .map(|(_, Passkey { id, .. })| Credentials::from_id(id))
+                    .list::<PassKey>(&format!("/pk/{}/", user.id))
+                    .map(|(_, key)| Credentials::from_id(key.into_id()))
                     .collect::<Vec<_>>()
             })
             .unwrap_or(vec![]);
-
-        let mut challenge = [0u8; 32];
-        SystemRandom::new().fill(&mut challenge).unwrap();
+        let challenge = new_challenge();
         let credential_create = CredentialRequestOptions {
             challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
             allow_credentials: keys,
@@ -202,8 +331,8 @@ pub(crate) async fn handle_auth(
                 serde_json::to_vec(&credential_create).unwrap(),
             )))
             .unwrap();
-    } else if path == "/validate" {
-        if let Some(_user) = user {
+    } else if path == "/record_credential" {
+        if let Some(user) = user {
             if let Some(boundary) = request
                 .headers()
                 .get(CONTENT_TYPE)
@@ -215,40 +344,170 @@ pub(crate) async fn handle_auth(
                     boundary,
                     Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
                 );
-                // let mut c = None;
-                // let mut a = None;
-                // let mut s = None;
-                // let mut u = None;
+                let mut i = None;
+                let mut a = 0_i16;
+                let mut k = vec![];
+                let mut challenge_verified = false;
                 while let Ok(Some(field)) = multipart.next_field().await {
                     match field.name() {
-                        Some("c") => {
-                            if let Ok(_bytes) = field.bytes().await {
-                                // c = Some(bytes.deref());
+                        Some("i") => {
+                            if let Ok(it) = field.bytes().await {
+                                i = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
                             }
                         }
                         Some("a") => {
-                            if let Ok(_bytes) = field.bytes().await {
-                                // a = Some(bytes.deref());
+                            if let Ok(it) = field.text().await {
+                                if let Ok(it) = it.parse::<i16>() {
+                                    a = it;
+                                }
                             }
                         }
-                        Some("s") => {
-                            if let Ok(_bytes) = field.bytes().await {
-                                // s = Some(bytes.deref());
+                        Some("k") => {
+                            if let Ok(it) = field.bytes().await {
+                                k.extend_from_slice(it.as_ref());
                             }
                         }
-                        Some("u") => {
-                            if let Ok(_bytes) = field.bytes().await {
-                                // u = Some(bytes.deref());
+                        Some("c") => {
+                            if let Ok(it) = field.bytes().await {
+                                if let Ok(client_data) =
+                                    serde_json::from_slice::<ClientData>(it.as_ref())
+                                {
+                                    let challenge = client_data.challenge;
+                                    if challenge.len() == 68 {
+                                        let timestamp: [u8; 4] =
+                                            challenge[32..36].try_into().unwrap();
+                                        let timestamp = u32::from_be_bytes(timestamp);
+                                        let now = SystemTime::now()
+                                            .duration_since(SystemTime::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs()
+                                            as u32;
+                                        let elapsed = now - timestamp;
+                                        if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION
+                                        {
+                                            let signature = challenge_signature(&challenge[..36]);
+                                            if signature.as_ref() == &challenge[36..] {
+                                                challenge_verified = true;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         _ => {}
                     }
                 }
-                // if c.is_some() && a.is_some() && s.is_some() {
-                // let c = c.unwrap();
-                // let a = a.unwrap();
-                // let s = s.unwrap();
-                // }
+                if i.is_some() && challenge_verified {
+                    if let Some(passkey) = PassKey::new(i.unwrap(), a, k.as_slice()) {
+                        if Snapshot::set(&format!("/pk/{}/{}", user.id, passkey.id()), &passkey)
+                            .await
+                            .is_some()
+                        {
+                            return Response::builder()
+                                .status(StatusCode::OK)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap();
+                        }
+                    }
+                }
+            }
+        }
+    } else if path == "/validate_credential" {
+        if let Some(boundary) = request
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|it| it.to_str().ok())
+            .and_then(|it| parse_boundary(it).ok())
+        {
+            let mut multipart = Multipart::with_constraints(
+                request.into_body().into_data_stream(),
+                boundary,
+                Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            );
+            let mut i = None;
+            let mut s = vec![];
+            let mut u = None;
+            let mut d = vec![];
+            let mut hash = None;
+            while let Ok(Some(field)) = multipart.next_field().await {
+                match field.name() {
+                    Some("i") => {
+                        if let Ok(it) = field.bytes().await {
+                            i = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
+                        }
+                    }
+                    Some("s") => {
+                        if let Ok(it) = field.bytes().await {
+                            s.extend_from_slice(it.as_ref());
+                        }
+                    }
+                    Some("u") => {
+                        if let Ok(it) = field.bytes().await {
+                            u = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
+                        }
+                    }
+                    Some("c") => {
+                        if let Ok(it) = field.bytes().await {
+                            if let Ok(client_data) =
+                                serde_json::from_slice::<ClientData>(it.as_ref())
+                            {
+                                let challenge = client_data.challenge;
+                                if challenge.len() == 68 {
+                                    let timestamp: [u8; 4] = challenge[32..36].try_into().unwrap();
+                                    let timestamp = u32::from_be_bytes(timestamp);
+                                    let now = SystemTime::now()
+                                        .duration_since(SystemTime::UNIX_EPOCH)
+                                        .unwrap()
+                                        .as_secs()
+                                        as u32;
+                                    let elapsed = now - timestamp;
+                                    if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION {
+                                        let signature = challenge_signature(&challenge[..36]);
+                                        if signature.as_ref() == &challenge[36..] {
+                                            hash = Some(
+                                                digest(&SHA256, it.as_ref()).as_ref().to_vec(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some("d") => {
+                        if let Ok(it) = field.bytes().await {
+                            d.extend_from_slice(it.as_ref());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if i.is_some()
+                && u.is_some()
+                && hash.is_some()
+                && s.is_empty()
+                && d.is_empty()
+                && digest(&SHA256, DOMAIN_APEX.as_bytes()).as_ref() == &d[..32]
+            {
+                let i = i.unwrap();
+                let u = u.unwrap();
+                if let Some(passkey) = store_cache
+                    .get_ref()
+                    .get::<PassKey>(&format!("/pk/{u}/{i}"))
+                {
+                    if passkey
+                        .sign(d.as_slice(), hash.unwrap().as_slice())
+                        .as_slice()
+                        == s.as_slice()
+                    {
+                        let mut response = Response::builder().status(StatusCode::OK);
+                        // response.headers_mut().unwrap().insert(
+                        //     SET_COOKIE,
+                        //     HeaderValue::from_str("").unwrap(),
+                        // );
+                        todo!("create session id and set cookies");
+                        return response.body(Either::Right(Empty::new())).unwrap();
+                    }
+                }
             }
         }
     }
