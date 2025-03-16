@@ -22,6 +22,11 @@ version = "0.17"
 default-features = false
 features = ["std", "less-safe-getrandom-custom-or-rdrand"]
 
+[dependencies.totp_rfc6238]
+version = "0.6"
+default-features = false
+features = ["ring"]
+
 [dependencies.base64-simd]
 version = "0.8"
 default-features = false
@@ -38,9 +43,9 @@ default-features = false
 features = ["std", "preserve_order"]
 
 [dependencies.object_store]
-version = "0.11"
+version = "0.12"
 default-features = false
-features = ["aws", "tls-webpki-roots"]
+features = ["fs", "aws", "tls-webpki-roots"]
 
 [dependencies.futures-lite]
 version = "2.6"
@@ -48,7 +53,7 @@ features = ["std"]
 
 [dependencies.reqwest]
 version = "0.12"
-features = ["blocking", "rustls-tls", "multipart"]
+features = ["blocking", "rustls-tls", "multipart", "json"]
 
 [dependencies.hyper]
 version = "1.6"
@@ -64,6 +69,11 @@ features = ["tokio", "server", "http1"]
 version = "0.1"
 default-features = false
 features = []
+
+[dependencies.multer]
+version = "3.1"
+default-features = false
+features = ["serde"]
 
 [dependencies.minijinja]
 version = "2.8"

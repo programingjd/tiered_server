@@ -49,7 +49,7 @@ pub(crate) struct User {
     last_name: String,
     date_of_birth: u32,
     #[serde(skip_serializing_if = "is_default")]
-    admin: bool,
+    pub(crate) admin: bool,
 }
 
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {

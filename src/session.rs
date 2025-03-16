@@ -64,7 +64,7 @@ impl User {
 impl SessionState {
     pub(crate) async fn from_headers(
         headers: &HeaderMap<HeaderValue>,
-        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     ) -> SessionState {
         let cookie_value = headers.get_all(COOKIE).iter().find_map(|it| {
             it.to_str()

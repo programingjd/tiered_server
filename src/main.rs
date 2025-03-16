@@ -7,6 +7,7 @@ mod headers;
 mod otp;
 mod prefix;
 mod push_webhook;
+mod reg;
 mod session;
 mod store;
 mod user;
@@ -256,7 +257,7 @@ async fn main() {
                                                 {
                                                     match SessionState::from_headers(
                                                         request.headers(),
-                                                        store_cache,
+                                                        &store_cache,
                                                     )
                                                     .await
                                                     {

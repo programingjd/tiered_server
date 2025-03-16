@@ -97,7 +97,7 @@ impl Snapshot {
     }
     pub(crate) fn list<T: DeserializeOwned>(
         &self,
-        prefix: &'static str,
+        prefix: &str,
     ) -> impl Iterator<Item = (&str, T)> {
         self.entries.iter().filter_map(move |(k, v)| {
             if k.starts_with(prefix) {

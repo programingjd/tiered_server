@@ -220,8 +220,10 @@ to see how the otp login is handled).<br>
 
 If there is no matching account, then a new account needs to be created.
 
-If the variable `VALIDATION_TOKEN` is set, then it means that registrations needs to be
-approved unless this validation token is sent alongside the user information.
+If the variable `VALIDATION_TOPT_SECRET` is set, then it means that registrations needs
+to be approved unless a validation time-based one-time token is sent alongside the user
+information. If set, the variable should be the base32-encoded secret for an
+[ISO-6238 TOTP](https://datatracker.ietf.org/doc/html/rfc6238).
 
 Cloudflare Turnstile is also supported if the variable `TURNSTILE_SECRET_KEY` is set.
 
