@@ -16,7 +16,8 @@ extern crate rustls as extern_rustls;
 
 use crate::api::handle_api;
 use crate::env::ConfigurationKey::{
-    BindAddress, DomainApex, StaticGithubBranch, StaticGithubRepository, StaticGithubUser,
+    BindAddress, DomainApex, DomainTitle, StaticGithubBranch, StaticGithubRepository,
+    StaticGithubUser,
 };
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
@@ -59,6 +60,10 @@ use zip_static_handler::http::headers::CONTENT_TYPE;
 //noinspection SpellCheckingInspection
 static DOMAIN_APEX: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(DomainApex).expect("missing domain name"));
+
+//noinspection SpellCheckingInspection
+pub(crate) static DOMAIN_TITLE: LazyLock<&'static str> =
+    LazyLock::new(|| secret_value(DomainTitle).expect("missing domain title"));
 
 #[derive(Debug)]
 struct LocalhostResolver {
@@ -117,6 +122,7 @@ async fn main() {
     let github_ip_ranges = fetch_github_webhook_ip_ranges()
         .await
         .expect("failed to fetch github webhook ip ranges");
+    let _domain_title = *DOMAIN_TITLE;
     let domain_apex = *DOMAIN_APEX;
     let domains = vec![
         domain_apex.to_string(),

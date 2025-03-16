@@ -44,6 +44,7 @@ static ENV: LazyLock<HashMap<ConfigurationKey, &'static str>> = LazyLock::new(||
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 pub(crate) enum ConfigurationKey {
     DomainApex,
+    DomainTitle,
     BindAddress,
     StaticGithubUser,
     StaticGithubRepository,
@@ -80,6 +81,7 @@ impl ConfigurationKey {
     fn name(&self) -> &'static str {
         match self {
             Self::DomainApex => "DOMAIN_APEX",
+            Self::DomainTitle => "DOMAIN_TITLE",
             Self::BindAddress => "BIND_ADDRESS",
             Self::StaticGithubUser => "STATIC_GITHUB_USER",
             Self::StaticGithubRepository => "STATIC_GITHUB_REPOSITORY",

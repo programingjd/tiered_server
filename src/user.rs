@@ -45,9 +45,9 @@ impl IdentificationMethod {
 pub(crate) struct User {
     pub(crate) id: String,
     pub(crate) identification: IdentificationMethod,
-    first_name: String,
-    last_name: String,
-    date_of_birth: u32,
+    pub(crate) first_name: String,
+    pub(crate) last_name: String,
+    pub(crate) date_of_birth: u32,
     #[serde(skip_serializing_if = "is_default")]
     pub(crate) admin: bool,
 }
