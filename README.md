@@ -177,7 +177,7 @@ graph TD;
   OtpPrompt-->EmailOtp["The server<br>sends an email<br>with an OTP link"]
   EmailOtp-->|Link|NewSession["The server creates<br>a new session<br>for the user"]
   NewSession-->UserLandingPageRedirect
-  UserForm-->UserModeration["The server saves<br>the user creation request"]
+  UserForm-->|New user|UserModeration["The server saves<br>the user creation request"]
   UserModeration-->|Accepted|UserCreation["The server creates<br>the new user"]
   UserCreation-->EmailOTP
   
