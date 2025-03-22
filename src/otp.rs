@@ -1,6 +1,6 @@
 use crate::email::Email;
 use crate::env::ConfigurationKey::{
-    EmailNewCredentialsTemplate, EmailNewCredentialsTitle, OtpSigningKey,
+    EmailOneTimeLoginTemplate, EmailOneTimeLoginTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
 use crate::headers::GET;
@@ -28,11 +28,11 @@ static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
 });
 
 //noinspection SpellCheckingInspection
-static EMAIL_NEW_CREDENTIALS_TITLE: LazyLock<Option<&'static str>> =
-    LazyLock::new(|| secret_value(EmailNewCredentialsTitle));
+static EMAIL_ONE_TIME_LOGIN_TITLE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailOneTimeLoginTitle));
 //noinspection SpellCheckingInspection
-static EMAIL_NEW_CREDENTIALS_TEMPLATE: LazyLock<Option<&'static str>> =
-    LazyLock::new(|| secret_value(EmailNewCredentialsTemplate));
+static EMAIL_ONE_TIME_LOGIN_TEMPLATE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailOneTimeLoginTemplate));
 
 const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
@@ -62,9 +62,15 @@ impl Otp {
             "{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
-        let subject = (*EMAIL_NEW_CREDENTIALS_TITLE)?;
-        let template = (*EMAIL_NEW_CREDENTIALS_TEMPLATE)?;
-        let content = handler.entry(template)?.content.clone()?;
+        let subject = (*EMAIL_ONE_TIME_LOGIN_TITLE)?;
+        let template = (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?;
+        let content = handler
+            .entry(&format!(
+                "{}{template}",
+                API_PATH_PREFIX.with_trailing_slash
+            ))?
+            .content
+            .clone()?;
         let jinja = from_utf8(content.as_ref()).ok()?;
         let mut environment = Environment::new();
         environment.add_template("new_credentials", jinja).ok()?;

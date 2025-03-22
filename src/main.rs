@@ -22,7 +22,7 @@ use crate::env::ConfigurationKey::{
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
 use crate::headers::HTML;
-use crate::prefix::{API_PATH_PREFIX, TEMPLATE_PATH_PREFIX, USER_PATH_PREFIX};
+use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
 use crate::store::{snapshot, update_store_cache_loop};
@@ -175,7 +175,6 @@ async fn main() {
     .expect("failed to download static content");
     let api_path_prefix = API_PATH_PREFIX.deref();
     let user_path_prefix = USER_PATH_PREFIX.deref();
-    let templates_path_prefix = TEMPLATE_PATH_PREFIX.deref();
     let login_path = *LOGIN_PATH.deref();
     let listener = TcpListener::bind((secret_value(BindAddress).unwrap_or("0.0.0.0"), 443u16))
         .await
@@ -238,16 +237,6 @@ async fn main() {
                                                 handle_api(request, store_cache).await,
                                             )
                                         } else {
-                                            // the templates should not be accessible even though
-                                            // they are in the static content
-                                            if templates_path_prefix.matches(path) {
-                                                return Ok::<_, Infallible>(
-                                                    Response::builder()
-                                                        .status(StatusCode::FORBIDDEN)
-                                                        .body(Either::Right(Empty::new()))
-                                                        .unwrap(),
-                                                );
-                                            }
                                             if user_path_prefix.matches(path) {
                                                 // user scoped html pages that require login
                                                 if let Some(HTML) =

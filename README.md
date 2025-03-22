@@ -19,15 +19,9 @@ You need to specify the token with the variable:
 
 - `STATIC_GITHUB_WEBHOOK_TOKEN`
 
-If you set that up, then updating the content is simply done by pushing the updates to the
-appropriate branch.<br>
+If you set that up, then updating the static content is simply done by pushing the updates to
+the appropriate branch.<br>
 Otherwise, you need to restart the server to have it pull up the new content.
-
-Part of the static content should include templates for the messages sent for new account
-creation requests and one-time login requests.<br>
-You need to specify where those templates are with the variable:
-
-- `TEMPLATE_PATH_PREFIX` (defaults to `/templates` if not set)
 
 <br>
 
@@ -45,20 +39,8 @@ The server is HTTPS only and the certificate is self-signed.
 
 <br>
 
-You need to specify a prefix for the static content that is scoped to the user and
-require the user to be logged in, and you also need to specify the path for the login page.
-
-- `USER_PATH_PREFIX` (defaults to `/user` if not set)
-- `LOGIN_PATH` (defaults to `/login` if not set)
-
-You also need to reserve a prefix for the API, and specify what it is with the variable:
-
-- `API_PATH_PREFIX` (defaults to `/api` if not set)
-
-<br>
-
 The user data is stored in an S3 bucket. You need to provide the information needed
-to access it:
+to access it with those variables:
 
 - `S3_REGION`
 - `S3_ENDPOINT`
@@ -78,8 +60,23 @@ If it takes longer to get the changes, the next update is delayed accordingly.
 
 <br>
 
+Parts of the static content should not be accessed unless the user is logged in.
+You need to specify both the prefix for that content and the path to the login page
+with the variables:
+
+- `USER_PATH_PREFIX` (defaults to `/user` if not set)
+- `LOGIN_PATH` (defaults to `/login` if not set)
+
+You need to reserve a prefix for the API, and specify what it is with the variable:
+
+- `API_PATH_PREFIX` (defaults to `/api` if not set)
+
+Static content under that path will not be accessible.
+
+<br>
+
 The server needs to send messages to users to verify the ownership of their email address
-or phone number and to send one-time login links.
+and to send one-time login links.
 You need to specify what service the server should use to send those messages:
 
 - `EMAIL_API_ENDPOINT` (defaults to `https://smtp.maileroo.com/send`)
@@ -88,8 +85,12 @@ You need to specify what service the server should use to send those messages:
 - `EMAIL_API_METHOD` (defaults to `POST`)
 - `EMAIL_API_REQUEST_CONTENT_TYPE` (defaults to `multipart/form-data`)
 - `EMAIL_SEND_ADDRESS` (e.g. `noreply@example.com`)
-- `EMAIL_NEW_CREDENTIALS_TITLE`
-- `EMAIL_NEW_CREDENTIALS_TEMPLATE` (should be under the template prefix)
+- `EMAIL_ONE_TIME_LOGIN_TITLE` (the title to use for one-time login message)
+- `EMAIL_ONE_TIME_LOGIN_TEMPLATE` (defaults to `email_otp.jinja`)
+
+The template should be a `jinja` template
+(see [the compatibility document](https://github.com/mitsuhiko/minijinja/blob/main/COMPATIBILITY.md))
+under the `api` prefix as defined with the `API_PATH_PREFIX` variable.
 
 <br>
 

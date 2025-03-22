@@ -60,7 +60,6 @@ pub(crate) enum ConfigurationKey {
     ChallengeSigningKey,
     ApiPathPrefix,
     UserPathPrefix,
-    TemplatePathPrefix,
     LoginPath,
     ValidationTotpSecret,
     EmailApiEndpoint,
@@ -69,8 +68,8 @@ pub(crate) enum ConfigurationKey {
     EmailApiMethod,
     EmailApiRequestContentType,
     EmailSendAddress,
-    EmailNewCredentialsTitle,
-    EmailNewCredentialsTemplate,
+    EmailOneTimeLoginTitle,
+    EmailOneTimeLoginTemplate,
     AdminUsers,
 }
 
@@ -97,7 +96,6 @@ impl ConfigurationKey {
             Self::ChallengeSigningKey => "CHALLENGE_SIGNING_KEY",
             Self::ApiPathPrefix => "API_PATH_PREFIX",
             Self::UserPathPrefix => "USER_PATH_PREFIX",
-            Self::TemplatePathPrefix => "TEMPLATE_PATH_PREFIX",
             Self::LoginPath => "LOGIN_PATH",
             Self::ValidationTotpSecret => "VALIDATION_TOTP_SECRET",
             Self::EmailApiEndpoint => "EMAIL_API_ENDPOINT",
@@ -106,8 +104,8 @@ impl ConfigurationKey {
             Self::EmailApiMethod => "EMAIL_API_METHOD",
             Self::EmailApiRequestContentType => "EMAIL_API_REQUEST_CONTENT_TYPE",
             Self::EmailSendAddress => "EMAIL_SEND_ADDRESS",
-            Self::EmailNewCredentialsTitle => "EMAIL_NEW_CREDENTIALS_TITLE",
-            Self::EmailNewCredentialsTemplate => "EMAIL_NEW_CREDENTIALS_TEMPLATE",
+            Self::EmailOneTimeLoginTitle => "EMAIL_ONE_TIME_LOGIN_TITLE",
+            Self::EmailOneTimeLoginTemplate => "EMAIL_ONE_TIME_LOGIN_TEMPLATE",
             Self::AdminUsers => "ADMIN_USERS",
         }
     }

@@ -1,4 +1,4 @@
-use crate::env::ConfigurationKey::{ApiPathPrefix, TemplatePathPrefix, UserPathPrefix};
+use crate::env::ConfigurationKey::{ApiPathPrefix, UserPathPrefix};
 use crate::env::{ConfigurationKey, secret_value};
 use std::sync::LazyLock;
 
@@ -18,9 +18,6 @@ pub(crate) static API_PATH_PREFIX: LazyLock<Prefix> =
 
 pub(crate) static USER_PATH_PREFIX: LazyLock<Prefix> =
     LazyLock::new(|| from_env(UserPathPrefix, "/user/"));
-
-pub(crate) static TEMPLATE_PATH_PREFIX: LazyLock<Prefix> =
-    LazyLock::new(|| from_env(TemplatePathPrefix, "/templates/"));
 
 fn from_env(key: ConfigurationKey, default: &'static str) -> Prefix {
     let with_trailing_slash = secret_value(key)
