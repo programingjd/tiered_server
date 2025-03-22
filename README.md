@@ -134,7 +134,7 @@ graph TD;
 
   UserLandingPageRequest-->QueryCookie2[The server checks the session cookie]
   QueryCookie2-->|Absent|LoginPageRedirect[The server redirects to the login page]
-  QueryCookie2--->|Present|CheckSessionValidity2[The server checks the session validity]
+  QueryCookie2---->|Present|CheckSessionValidity2[The server checks the session validity]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
   CheckSessionValidity2-->|Valid|QueryExistingPasskey2[The page asks the server if the user has a passkey]
   QueryExistingPasskey2-->|No|NewPasskeyPrompt2[The page asks the user to create a new passkey]
