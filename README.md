@@ -122,19 +122,39 @@ registrations pending approval are under `/reg`:
 
 ```mermaid
 graph TD;
-  A[Request user page] --> B[Session cookie?];
-  B -- Yes --> C[Extract username/email] --> D[Still valid?]
-  D -- Yes --> J(("<b>Show<br>user page</b>"))
-  D -- No --> G
-  B -- No --> E["<i>Login page</i><br>Ask for username/email"] --> F[Passkey in db?]
-  F -- Yes --> G[Ask for passkey]
-  F -- No -->  M[Email OTP bound to username/email]
-  M -- Visit --> H[Create and store passkey]
-  H --> G
-  G -- Success --> K[Session cookie] --> J
-  G -- Failure --> N[Reset?]
-  N -- Yes --> M
-  N -- No --> G
+  UserLandingPageRequest(("<b>The user requests<br>its landing page</b>"))
+  ProtectedPageRequest(("<b>The user requests<br>another protected page</b>"))
+  LoginPageRequest(("<b>Login page</b>")
+  
+  ProtectedPageRequest --> QueryCookie1[The server checks if the login cookie exists]
+  QueryCookie1 -- Absent -->  LoginPageRedirect1[The server redirects to the login page]
+  QueryCookie1 -- Present --> CheckSessionValidity1[The server checks the session validity]
+  CheckSessionValidity1 -- Expired --> LoginPageRedirect
+  CheckSessionValidity1 -- Valid --> ProtectedPageResponse(("<b>The server sends the protected page<b>"))
+
+  UserLandingPageRequest --> QuerySessionCookie2[The server checks the session cookie]
+  QueryCookie2 -- Absent --> LoginPageRedirect[The server redirects to the login page]
+  QueryCookie2 -- Present --> CheckSessionValidity2[The server checks the session validity]
+  CheckSessionValidity2 -- Expired --> LoginPageRedirect
+  CheckSessionValidity2 -- Valid --> QueryExistingPasskey2[The page asks the server if the user has a passkey]
+  QueryExistingPasskey2 -- Yes --> UserLandingPageResponse(("<b>The server sends the user landing page<b>"))
+  QueryExistingPasskey2 -- No --> NewPasskeyPrompt2[The page asks the user to create a new passkey]
+  NewPasskeyPrompt2 -- Success --> NewPasskeyStore2[The server stores the new passkey]
+  NewPasskeyPrompt --> UserLandingPageResponse
+
+  LoginPageRequest --> QueryPasskey[The page asks for a passkey (specific to that user if available)]
+  QueryPasskey -- Success --> SessionCookieUpdate[The server updates the session cookie]
+  SessionCookieUpdate --> UserLandingPageRedirect[The page redirects to the user landing page]
+  QueryPasskey -- Failure --> QueryCookie3[The page checks if the login cookie exists]
+  QueryCookie3 -- Absent --> UserForm[The page asks the user for last name, first name and date of birth]
+  UserForm -- User exists --> NewPasskeyPrompt3[The page asks the user to create a new passkey]
+  NewPasskeyPrompt3 --> EmailOTP[The server sends an email with an OTP link]
+  EmailOTP -- Link --> NewSession[The server creates a new session for the user]
+  NewSession --> UserLandingPageRedirect
+  UserForm --> New user --> NewUser[The page asks for the user email]
+  NewUser --> UserModeration[The server saves the user creation request]
+  UserModeration -- Accepted --> UserCreation[The server creates the new user]
+  UserCreation --> EmailOTP
 ```
 
 Two cookies are used, one for the server and one for javascript:
