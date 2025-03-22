@@ -124,7 +124,7 @@ registrations pending approval are under `/reg`:
 graph TD;
   UserLandingPageRequest(("<b>The user requests<br>its landing page</b>"))
   ProtectedPageRequest(("<b>The user requests<br>another protected page</b>"))
-  LoginPageRequest(("<b>Login page</b>")
+  LoginPageRequest(("<b>Login page</b>"))
   
   ProtectedPageRequest --> QueryCookie1[The server checks if the login cookie exists]
   QueryCookie1 -- Absent -->  LoginPageRedirect1[The server redirects to the login page]
