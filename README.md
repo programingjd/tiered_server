@@ -140,7 +140,7 @@ graph TD;
   QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>The server sends the user landing page<b>"))
   QueryExistingPasskey2-->|No|NewPasskeyPrompt2[The page asks the user to create a new passkey]
   NewPasskeyPrompt2-->|Success|NewPasskeyStore2[The server stores the new passkey]
-  QueryExistingPasskey2-->UserLandingPageResponse
+  NewPasskeyPrompt2-->UserLandingPageResponse
 
   LoginPageRequest-->QueryPasskey[The page asks for a passkey specific to that user if available]
   QueryPasskey-->|Success|SessionCookieUpdate[The server updates the session cookie]
