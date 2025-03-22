@@ -4,21 +4,23 @@ The server is set up so that it doesn't require disk access.
 
 The static content comes from a GitHub repository.<br>
 [zip_static_handler](https://crates.io/crates/zip_static_handler) is used for that purpose.<br>
-The [project page](https://github.com/programingjd/zip_static_handler) details the conventions for directory indices and
-redirects.
+The [project page](https://github.com/programingjd/zip_static_handler) details the conventions
+for directory indices and redirects.<br>
 Which repository is used is configurable with the environment variables:
 
 - `STATIC_GITHUB_USER`
 - `STATIC_GITHUB_REPOSITORY`
 - `STATIC_GITHUB_BRANCH`
 
-You can also set up a webhook to notify the server when the content has changed and needs to be updated.
-You can do that with a GitHub push webhook (you can use any path, the server ignores it). You need to specify the token
-with the variable:
+You can also set up a webhook to notify the server when the content has changed and needs
+to be updated.<br>
+You can do that with a GitHub push webhook (you can use any path, the server ignores it).<br>
+You need to specify the token with the variable:
 
 - `STATIC_GITHUB_WEBHOOK_TOKEN`
 
-Part of the static content should include templates for the messages sent for account creation and credentials resets.
+Part of the static content should include templates for the messages sent for new account
+creation requests and one-time login requests.<br>
 You need to specify where those templates are with the variable:
 
 - `TEMPLATE_PATH_PREFIX` (defaults to `/templates` if not set)
@@ -26,20 +28,21 @@ You need to specify where those templates are with the variable:
 <br>
 
 The server is meant to be behind the Cloudflare CDN.<br>
-You need to register the apex domain and its `www` subdomain with Cloudflare, and specify the apex domain with the
-variable:
+You need to register the apex domain and its `www` subdomain with Cloudflare,
+and specify the apex domain with the variable:
 
 - `DOMAIN_APEX` (e.g. `example.com`)
 
-There's a built-in firewall that terminates the connections unless they come
-from either one of Cloudflare CDN servers or one of the GitHub webook servers for the update webhook.
+There's a built-in firewall that terminates the connections unless they don't come from
+one of the expected servers: a GitHub Webhook server for the update webhook request,
+or a Cloudflare CDN server for all other requests.
 
 The server is HTTPS only and the certificate is self-signed.
 
 <br>
 
-You need to specify a prefix for the static content that is scoped to the user and require the user to be logged in,
-and you also need to specify the path for the login page.
+You need to specify a prefix for the static content that is scoped to the user and
+require the user to be logged in, and you also need to specify the path for the login page.
 
 - `USER_PATH_PREFIX` (defaults to `/user` if not set)
 - `LOGIN_PATH` (defaults to `/login` if not set)
@@ -50,7 +53,8 @@ You also need to reserve a prefix for the API, and specify what it is with the v
 
 <br>
 
-The user data is stored in an S3 bucket. You need to provide the information needed to access it:
+The user data is stored in an S3 bucket. You need to provide the information needed
+to access it:
 
 - `S3_REGION`
 - `S3_ENDPOINT`
@@ -58,17 +62,21 @@ The user data is stored in an S3 bucket. You need to provide the information nee
 - `S3_ACCESS_KEY`
 - `S3_SECRET_KEY`
 
-That content is encrypted so that the information stays safe even if access to the bucket is obtained. You should
-specify the encryption parameters with the variables:
+That content is encrypted so that the information stays safe even if access to
+the bucket is obtained. You should specify the encryption parameters with the variables:
 
 - `STORE_ENCRYPTION_KEY` (32 bytes base64-encoded with no padding)
 - `OTP_SIGNING_KEY` (32 bytes base64-encoded with no padding)
 - `CHALLENGE_SIGNING_KEY` (32 bytes base64-encoded with no padding)
 
+The bucket content is cached in memory and the server tries to update its cache every second.
+If it takes longer to get the changes, the next update is delayed accordingly.
+
 <br>
 
-You also need to specify what service to use to send messages to users for registering an account or resetting their
-credentials with the variables:
+The server needs to send messages to users to verify the ownership of their email address
+or phone number and to send one-time login links.
+You need to specify what service the server should use to send those messages:
 
 - `EMAIL_API_ENDPOINT` (defaults to `https://smtp.maileroo.com/send`)
 - `EMAIL_API_AUTH_HEADER`
@@ -85,7 +93,11 @@ credentials with the variables:
 
 <br>
 
-### S3 object storage
+### S3 object storage bucket content
+
+The path is not encrypted, but the content is.
+
+<br>
 
 session ids are under `/sid`:
 
@@ -118,7 +130,7 @@ registrations pending approval are under `/reg`:
 
 <br>
 
-### Connection
+### Restricted access to user-scoped pages
 
 ```mermaid
 graph TD;
@@ -171,6 +183,8 @@ Two cookies are used, one for the server and one for javascript:
   contains the session id
 
 Both cookies have the maximum lifespan (400 days) because they don't include any sensitive information.
+The login session is much shorter (4 hours), but we want to keep it in an expired state so that we can
+know which user was logged in.
 
 API requests return `403 FORBIDDEN` if the session id from the `sid` cookie is missing or expired.
 
