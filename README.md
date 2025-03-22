@@ -132,7 +132,7 @@ graph TD;
   CheckSessionValidity1-->|Expired|LoginPageRedirect
   CheckSessionValidity1-->|Valid|ProtectedPageResponse(("<b>The server sends the protected page<b>"))
 
-  UserLandingPageRequest-->QuerySessionCookie2[The server checks the session cookie]
+  UserLandingPageRequest-->QueryCookie2[The server checks the session cookie]
   QueryCookie2--Absent-->LoginPageRedirect[The server redirects to the login page]
   QueryCookie2--Present-->CheckSessionValidity2[The server checks the session validity]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
@@ -155,6 +155,8 @@ graph TD;
   NewUser-->UserModeration[The server saves the user creation request]
   UserModeration-->|Accepted|UserCreation[The server creates the new user]
   UserCreation-->EmailOTP
+  
+  UserLandingPageRedirect-->UserLandingPageRequest
 ```
 
 Two cookies are used, one for the server and one for javascript:
