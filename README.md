@@ -130,7 +130,7 @@ graph TD;
   QueryCookie1-->|Absent|LoginPageRedirect1[The server redirects to the login page]
   QueryCookie1-->|Present|CheckSessionValidity1[The server checks the session validity]
   CheckSessionValidity1-->|Valid|ProtectedPageResponse(("<b>The server sends the protected page<b>"))
-  CheckSessionValidity1---->|Expired|LoginPageRedirect
+  CheckSessionValidity1------->|Expired|LoginPageRedirect
 
   UserLandingPageRequest-->QueryCookie2[The server checks the session cookie]
   QueryCookie2--Absent-->LoginPageRedirect[The server redirects to the login page]
