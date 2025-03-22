@@ -137,24 +137,24 @@ graph TD;
   QueryCookie2-->|Present|CheckSessionValidity2["The server checks<br>the session validity"]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
   CheckSessionValidity2-->|Valid|QueryExistingPasskey2["The page asks<br>the server if<br>the user has<br>a passkey"]
-  QueryExistingPasskey2-->|No|NewPasskeyPrompt2["The page asks<br>the user toM<br>create a new passkey"]
+  QueryExistingPasskey2-->|No|NewPasskeyPrompt2["The page asks<br>the user to<br>create a new passkey"]
   QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>User landing page<b>"))
   NewPasskeyPrompt2-->|Success|NewPasskeyStore2["The server stores<br>the new passkey"]
   NewPasskeyPrompt2-->UserLandingPageResponse
 
-  LoginPageRequest-->QueryPasskey[The page asks for a passkey specific to that user if available]
-  QueryPasskey-->|Success|SessionCookieUpdate[The server updates the session cookie]
-  SessionCookieUpdate-->UserLandingPageRedirect[The page redirects to the user landing page]
-  QueryPasskey-->|Failure|QueryCookie3[The page checks if the login cookie exists]
-  QueryCookie3-->|Present|NewPasskeyPrompt3[The page asks the user to create a new passkey]
-  QueryCookie3-->|Absent|UserForm[The page asks the user for last name, first name and date of birth]
+  LoginPageRequest-->QueryPasskey["The page asks<br>for a passkey<br>(for that user<br>if available)"]
+  QueryPasskey-->|Success|SessionCookieUpdate["The server updates<br>the session cookie"]
+  SessionCookieUpdate-->UserLandingPageRedirect["The page redirects<br>to the user landing page"]
+  QueryPasskey-->|Failure|QueryCookie3["The page checks if<br>the login cookie exists"]
+  QueryCookie3-->|Present|NewPasskeyPrompt3["The page asks<br>the user to create<br>a new passkey"]
+  QueryCookie3-->|Absent|UserForm["The page asks<br>the user for<br>name and dob"]
   UserForm-->|User exists|NewPasskeyPrompt3
-  NewPasskeyPrompt3-->EmailOTP[The server sends an email with an OTP link]
-  EmailOTP-->|Link|NewSession[The server creates a new session for the user]
+  NewPasskeyPrompt3-->EmailOTP["The server<br>sends an email<br>with an OTP link"]
+  EmailOTP-->|Link|NewSession["The server creates<br>a new session<br>for the user"]
   NewSession-->UserLandingPageRedirect
-  UserForm-->|New user|NewUser[The page asks for the user email]
-  NewUser-->UserModeration[The server saves the user creation request]
-  UserModeration-->|Accepted|UserCreation[The server creates the new user]
+  UserForm-->|New user|NewUser["The page asks for<br>the user email"]
+  NewUser-->UserModeration["The server saves<br>the user creation request"]
+  UserModeration-->|Accepted|UserCreation["The server creates<br>the new user"]
   UserCreation-->EmailOTP
   
   UserLandingPageRedirect-->UserLandingPageRequest
