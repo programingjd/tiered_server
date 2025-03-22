@@ -75,9 +75,10 @@ Static content under that path will not be accessible.
 
 <br>
 
-The server needs to send messages to users to verify the ownership of their email address
-and to send one-time login links.
-You need to specify what service the server should use to send those messages:
+The server needs to send messages to users to verify the ownership of their
+email address and to send one-time login links.
+You need to specify details about how the server should send those messages
+with those variables:
 
 - `EMAIL_API_ENDPOINT` (defaults to `https://smtp.maileroo.com/send`)
 - `EMAIL_API_AUTH_HEADER`
@@ -90,7 +91,14 @@ You need to specify what service the server should use to send those messages:
 
 The template should be a `jinja` template
 (see [the compatibility document](https://github.com/mitsuhiko/minijinja/blob/main/COMPATIBILITY.md))
-under the `api` prefix as defined with the `API_PATH_PREFIX` variable.
+under the `api` prefix as defined with the `API_PATH_PREFIX` variable.<br>
+The variables available for the template are the user information:
+
+- `link_url`
+- `user.first_name`
+- `user.last_name`
+- `user.date_of_birth` (as a unix timestamp)
+- `user.admin`
 
 <br>
 
