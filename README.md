@@ -146,8 +146,8 @@ graph TD;
   QueryPasskey-->|Success|SessionCookieUpdate[The server updates the session cookie]
   SessionCookieUpdate-->UserLandingPageRedirect[The page redirects to the user landing page]
   QueryPasskey-->|Failure|QueryCookie3[The page checks if the login cookie exists]
-  QueryCookie3-->|Absent|UserForm[The page asks the user for last name, first name and date of birth]
   QueryCookie3-->|Present|NewPasskeyPrompt3[The page asks the user to create a new passkey]
+  QueryCookie3-->|Absent|UserForm[The page asks the user for last name, first name and date of birth]
   UserForm-->|User exists|NewPasskeyPrompt3
   NewPasskeyPrompt3-->EmailOTP[The server sends an email with an OTP link]
   EmailOTP-->|Link|NewSession[The server creates a new session for the user]
