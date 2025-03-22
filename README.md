@@ -142,7 +142,7 @@ graph TD;
   NewPasskeyPrompt2 -- Success --> NewPasskeyStore2[The server stores the new passkey]
   NewPasskeyPrompt --> UserLandingPageResponse
 
-  LoginPageRequest --> QueryPasskey[The page asks for a passkey (specific to that user if available)]
+  LoginPageRequest --> QueryPasskey[The page asks for a passkey specific to that user if available]
   QueryPasskey -- Success --> SessionCookieUpdate[The server updates the session cookie]
   SessionCookieUpdate --> UserLandingPageRedirect[The page redirects to the user landing page]
   QueryPasskey -- Failure --> QueryCookie3[The page checks if the login cookie exists]
