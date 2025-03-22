@@ -137,10 +137,10 @@ graph TD;
   QueryCookie2--Present-->CheckSessionValidity2[The server checks the session validity]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
   CheckSessionValidity2-->|Valid|QueryExistingPasskey2[The page asks the server if the user has a passkey]
-  QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>The server sends the user landing page<b>"))
   QueryExistingPasskey2-->|No|NewPasskeyPrompt2[The page asks the user to create a new passkey]
-  NewPasskeyPrompt2-->UserLandingPageResponse
+  QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>The server sends the user landing page<b>"))
   NewPasskeyPrompt2-->|Success|NewPasskeyStore2[The server stores the new passkey]
+  NewPasskeyPrompt2-->UserLandingPageResponse
 
   LoginPageRequest-->QueryPasskey[The page asks for a passkey specific to that user if available]
   QueryPasskey-->|Success|SessionCookieUpdate[The server updates the session cookie]
