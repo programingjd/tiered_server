@@ -132,11 +132,11 @@ graph TD;
   CheckSessionValidity1-->|Valid|ProtectedPageResponse(("<b>Protected page<b>"))
   CheckSessionValidity1-->|Expired|LoginPageRedirect
 
-  UserLandingPageRequest-->QueryCookie2[The server checks the session cookie]
+  UserLandingPageRequest-->QueryCookie2["The server checks<br>the session cookie"]
   QueryCookie2-->|Absent|LoginPageRedirect
-  QueryCookie2-->|Present|CheckSessionValidity2[The server checks the session validity]
+  QueryCookie2-->|Present|CheckSessionValidity2["The server checks<br>the session validity"]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
-  CheckSessionValidity2-->|Valid|QueryExistingPasskey2[The page asks the server if the user has a passkey]
+  CheckSessionValidity2-->|Valid|QueryExistingPasskey2["The page asks<br>the server if<br>the user has a passkey"]
   QueryExistingPasskey2-->|No|NewPasskeyPrompt2[The page asks the user to create a new passkey]
   QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>User landing page<b>"))
   NewPasskeyPrompt2-->|Success|NewPasskeyStore2[The server stores the new passkey]
