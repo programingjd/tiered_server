@@ -122,9 +122,9 @@ registrations pending approval are under `/reg`:
 
 ```mermaid
 graph TD;
-  UserLandingPageRequest(("<b>The user<br>requests<br>its landing page</b>"))
-  ProtectedPageRequest(("<b>The user<br>requests<br>another<br>protected page</b>"))
-  LoginPageRequest(("<b>Login page</b>"))
+  UserLandingPageRequest(("<b>User<br>landing page<br>request</b>"))
+  ProtectedPageRequest(("<b>Protected page<br>request</b>"))
+  LoginPageRequest(("<b>Login page<br>request</b>"))
   
   ProtectedPageRequest-->QueryCookie1[The server checks if the login cookie exists]
   QueryCookie1-->|Present|CheckSessionValidity1[The server checks the session validity]
