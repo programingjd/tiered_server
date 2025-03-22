@@ -147,11 +147,11 @@ graph TD;
   SessionCookieUpdate --> UserLandingPageRedirect[The page redirects to the user landing page]
   QueryPasskey -- Failure --> QueryCookie3[The page checks if the login cookie exists]
   QueryCookie3 -- Absent --> UserForm[The page asks the user for last name, first name and date of birth]
-  UserForm -- "User exists" --> NewPasskeyPrompt3[The page asks the user to create a new passkey]
+  UserForm -- |User exists| --> NewPasskeyPrompt3[The page asks the user to create a new passkey]
   NewPasskeyPrompt3 --> EmailOTP[The server sends an email with an OTP link]
   EmailOTP -- Link --> NewSession[The server creates a new session for the user]
   NewSession --> UserLandingPageRedirect
-  UserForm --> "New user" --> NewUser[The page asks for the user email]
+  UserForm --> |New user| --> NewUser[The page asks for the user email]
   NewUser --> UserModeration[The server saves the user creation request]
   UserModeration -- Accepted --> UserCreation[The server creates the new user]
   UserCreation --> EmailOTP
