@@ -1,4 +1,4 @@
-### Rust http server with static content and user protected content.
+## Rust http server with static content and user protected content.
 
 The server is set up so that it doesn't require disk access.
 
@@ -124,7 +124,7 @@ one-time login tokens are under `/otp`:
 /otp/{otp_token} -> (user_id,timestamp)
 ```
 
-passkeys are under `/pk`:
+passkeys are user data are under `/pk`:
 
 ```
 /pk/{user_id} -> {user}
@@ -162,23 +162,22 @@ graph TD;
   QueryCookie2-->|Present|CheckSessionValidity2["The server checks<br>the session validity"]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
   CheckSessionValidity2-->|Valid|QueryExistingPasskey2["The page asks<br>the server if<br>the user has<br>a passkey"]
-  QueryExistingPasskey2-->|No|NewPasskeyPrompt2["The page asks<br>the user to<br>create a new passkey"]
+  QueryExistingPasskey2-->|No|NewPasskeyPrompt["The page asks<br>the user to<br>create a new passkey"]
   QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>User landing page<b>"))
-  NewPasskeyPrompt2-->|Success|NewPasskeyStore2["The server stores<br>the new passkey"]
-  NewPasskeyPrompt2-->UserLandingPageResponse
+  NewPasskeyPrompt-->|Success|NewPasskeyStore["The server stores<br>the new passkey"]
+  NewPasskeyPrompt-->UserLandingPageResponse
 
   LoginPageRequest-->QueryPasskey["The page asks<br>for a passkey<br>(for that user<br>if available)"]
   QueryPasskey-->|Success|SessionCookieUpdate["The server updates<br>the session cookie"]
   SessionCookieUpdate-->UserLandingPageRedirect["The page redirects<br>to the user landing page"]
   QueryPasskey-->|Failure|QueryCookie3["The page checks if<br>the login cookie exists"]
-  QueryCookie3-->|Present|NewPasskeyPrompt3["The page asks<br>the user to create<br>a new passkey"]
-  QueryCookie3-->|Absent|UserForm["The page asks<br>the user for<br>name and dob"]
-  UserForm-->|User exists|NewPasskeyPrompt3
-  NewPasskeyPrompt3-->EmailOTP["The server<br>sends an email<br>with an OTP link"]
-  EmailOTP-->|Link|NewSession["The server creates<br>a new session<br>for the user"]
+  QueryCookie3-->|Present|OtpPrompt["The page provides<br>an option to email<br>a one-time login link"]
+  QueryCookie3-->|Absent|UserForm["The page asks<br>the user for<br>email, name and dob"]
+  UserForm-->|User exists|OtpPrompt
+  OtpPrompt-->EmailOtp["The server<br>sends an email<br>with an OTP link"]
+  EmailOtp-->|Link|NewSession["The server creates<br>a new session<br>for the user"]
   NewSession-->UserLandingPageRedirect
-  UserForm-->|New user|NewUser["The page asks for<br>the user email"]
-  NewUser-->UserModeration["The server saves<br>the user creation request"]
+  UserForm-->UserModeration["The server saves<br>the user creation request"]
   UserModeration-->|Accepted|UserCreation["The server creates<br>the new user"]
   UserCreation-->EmailOTP
   
@@ -195,26 +194,19 @@ Two cookies are used, one for the server and one for javascript:
   *http-only (not accessible from javascript)*<br>
   contains the session id
 
-Both cookies have the maximum lifespan (400 days) because they don't include any sensitive information.
-The login session is much shorter (4 hours), but we want to keep it in an expired state so that we can
-know which user was logged in.
+Both cookies have the maximum lifespan (400 days)
+because they don't include any sensitive information.
+A login session lifespan is much shorter (4 hours),
+but we want to keep the cookies and the session ids on the server even after
+the session has expired so that we can know who was logged in.
 
-API requests return `403 FORBIDDEN` if the session id from the `sid` cookie is missing or expired.
-
-For user-scoped html pages, the server first checks if the `sid` cookie exists and refers to an
-existing session id with user info (but it might be expired).
+API requests return `403 FORBIDDEN` if the session id
+from the `sid` cookie is missing or expired.
 
 The page (javascript) should look for the `st` cookie.<br>
-If its value indicates that the connection has expired (or the cookie is missing),
-the page should trigger the passkey authorization flow to reconnect
-the user. Otherwise, api calls will fail because the connection has expired.
-
-The passkey authorization flow is as follows:
-
-- the page requests the challenge from the server
-- the server retrieves the user info from the session id (from the `sid` cookie value).
-  if this fails then the server returns an error, otherwise, it returns the challenge.
-- ...
+If its missing or its value indicates that the connection has expired or will expire soon
+(it might need some time to make fetch requests that need the session to still be valid),
+the page should redirect to the login page.
 
 <br>
 
@@ -229,7 +221,7 @@ User data required for creating an account:
 first name
 last name
 date of birth
-identification (email or phone number)
+identification (email)
 
 Once all this information is gathered, the server generates a unique user id
 and creates a new entry under `/pk` with the identity hash as the key and the user data for the value.
@@ -256,7 +248,18 @@ The server redirects to the user home page.
 
 ### Login page
 
-The login page handles both login and new credential requests.
+The login page handles both login and new account requests.
+
+The login page first asks for a passkey. If there's an expired session for a
+specific user, then it asks for a passkey for that user only.
+
+If it gets a passkey, then it updates the session cookie and redirects to the user
+landing page.
+
+If it couldn't get a passkey, and there's an expired session for a specific user,
+then we ask that user if he wants a one-time login link.
+
+If we don't know the user, then we ask for the
 
 Just like all user-scoped pages, the login should trigger the passkey authorization flow
 if the `st` cookie is missing or its value indicates that the connection expired.

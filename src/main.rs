@@ -257,16 +257,7 @@ async fn main() {
                                                     .await
                                                     {
                                                         SessionState::Valid { .. } => {}
-                                                        SessionState::Expired { .. } => {
-                                                            let mut response = handler
-                                                                .handle_hyper_request(request);
-                                                            response
-                                                                .headers_mut()
-                                                                .insert(SET_COOKIE, SID_EXPIRED);
-                                                            return Ok(response);
-                                                        }
-                                                        SessionState::Missing => {
-                                                            // `sid` cookie with session_id is missing
+                                                        _ => {
                                                             // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
