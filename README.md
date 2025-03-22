@@ -158,6 +158,7 @@ graph TD;
   UserCreation-->EmailOTP
   
   UserLandingPageRedirect-->UserLandingPageRequest
+  LoginPageRedirect-->LoginPageRequest
 ```
 
 Two cookies are used, one for the server and one for javascript:
