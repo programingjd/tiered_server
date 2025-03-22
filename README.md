@@ -179,7 +179,7 @@ graph TD;
   NewSession-->UserLandingPageRedirect
   UserForm-->|New user|UserModeration["The server saves<br>the user creation request"]
   UserModeration-->|Accepted|UserCreation["The server creates<br>the new user"]
-  UserCreation-->EmailOTP
+  UserCreation-->EmailOtp
   
   UserLandingPageRedirect-->UserLandingPageRequest
   LoginPageRedirect-->LoginPageRequest
@@ -214,38 +214,6 @@ the page should redirect to the login page.
 
 <br>
 
-### User account
-
-User data required for creating an account:
-
-first name
-last name
-date of birth
-identification (email)
-
-Once all this information is gathered, the server generates a unique user id
-and creates a new entry under `/pk` with the identity hash as the key and the user data for the value.
-The identity hash is the salted hash of the identification method (email or phone number).
-
-The server then creates a unique otp id. It is then stored in `/otp` with the id as the key,
-and a value containing the user id, identity hash and a timestamp.
-A link with the id and its signature is then sent to the identification method,
-instructing the user to click on it to create credentials.
-
-Once the server receives a request for that link, it checks the otp id signature,
-and if the otp exists and its timestamp indicates that it hasn't expired.
-If all that is true, it generates a new unique session id and stores it under `/sid`
-with the session id as the key, and the user id, identity hash and a timestamp for the value.
-The response also sets the two session cookies. The user is now logged in.
-
-The server redirects to the user home page.
-
-<br>
-
----
-
-<br>
-
 ### Login page
 
 The login page handles both login and new account requests.
@@ -253,41 +221,38 @@ The login page handles both login and new account requests.
 The login page first asks for a passkey. If there's an expired session for a
 specific user, then it asks for a passkey for that user only.
 
-If it gets a passkey, then it updates the session cookie and redirects to the user
-landing page.
+If it gets a passkey, then it updates the session and cookies and
+redirects to the user landing page.
 
 If it couldn't get a passkey, and there's an expired session for a specific user,
-then we ask that user if he wants a one-time login link.
+then it provides an option to send a one-time login link to the user's email address.
 
-If we don't know the user, then we ask for the
+If the user is not known, then the page asks for the user information:
 
-Just like all user-scoped pages, the login should trigger the passkey authorization flow
-if the `st` cookie is missing or its value indicates that the connection expired.
-Otherwise, it just redirects to the user home page.
+- email
+- last name
+- first name
+- date of birth
 
-If the passkey flow fails because there's no session id, then the user is prompted to enter
-its identification method (email or phone number), first name, last name and date of birth.
+If that user already has an account, then the login page provides an option
+to send a one-time login link to the user's email address.
 
-Once the server receives this information, it checks if there's already a matching account.<br>
-If there is then an otp is sent to the identification method (see the user account section
-to see how the otp login is handled).<br>
-
-If there is no matching account, then a new account needs to be created.
-
-If the variable `VALIDATION_TOPT_SECRET` is set, then it means that registrations needs
+If the variable `VALIDATION_TOPT_SECRET` is set, then it means that new accounts need
 to be approved unless a validation time-based one-time token is sent alongside the user
 information. If set, the variable should be the base32-encoded secret for an
 [ISO-6238 TOTP](https://datatracker.ietf.org/doc/html/rfc6238).
 
-Cloudflare Turnstile is also supported if the variable `TURNSTILE_SECRET_KEY` is set.
+If it's set then the login page asks the user for that token (it's not required).
 
-If no validation is required (the variable is not set, or the validation token matches,
-and if Turnstile is disabled or the validation succeeded), then the account is created.
-See the user account section for more details.
+If that token is provided, but invalid, the user is asked again.<br>
+If it's valid, then the user account is created right away and the server sends
+a one-time login link to the user's email address.<br>
+If it's not provided then the user request is saved instead and the request will
+need to be moderated by an admin.
 
-If validation is required, a unique user id is created and stored under `/reg`
-with the user id as the key and the user information as the value.<br>
-There should be an admin page to validate or discard those requests.
+Cloudflare Turnstile is supported if the variable `TURNSTILE_SECRET_KEY` is set.
 
+<br>
 
+---
 
