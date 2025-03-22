@@ -127,13 +127,13 @@ graph TD;
   LoginPageRequest(("<b>Login page</b>"))
   
   ProtectedPageRequest-->QueryCookie1[The server checks if the login cookie exists]
-  QueryCookie1-->|Absent|LoginPageRedirect1[The server redirects to the login page]
+  QueryCookie1-->|Absent|LoginPageRedirect[The server redirects to the login page]
   QueryCookie1-->|Present|CheckSessionValidity1[The server checks the session validity]
   CheckSessionValidity1-->|Valid|ProtectedPageResponse(("<b>The server sends the protected page<b>"))
   CheckSessionValidity1-->|Expired|LoginPageRedirect
 
   UserLandingPageRequest-->QueryCookie2[The server checks the session cookie]
-  QueryCookie2-->|Absent|LoginPageRedirect[The server redirects to the login page]
+  QueryCookie2-->|Absent|LoginPageRedirect
   QueryCookie2-->|Present|CheckSessionValidity2[The server checks the session validity]
   CheckSessionValidity2-->|Expired|LoginPageRedirect
   CheckSessionValidity2-->|Valid|QueryExistingPasskey2[The page asks the server if the user has a passkey]
