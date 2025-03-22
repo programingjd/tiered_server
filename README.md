@@ -19,6 +19,10 @@ You need to specify the token with the variable:
 
 - `STATIC_GITHUB_WEBHOOK_TOKEN`
 
+If you set that up, then updating the content is simply done by pushing the updates to the
+appropriate branch.<br>
+Otherwise, you need to restart the server to have it pull up the new content.
+
 Part of the static content should include templates for the messages sent for new account
 creation requests and one-time login requests.<br>
 You need to specify where those templates are with the variable:
