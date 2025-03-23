@@ -8,6 +8,7 @@ use zip_static_handler::http::headers::{
 
 pub(crate) const HTML: &[u8] = b"text/html";
 pub(crate) const GET: HeaderValue = HeaderValue::from_static("GET");
+pub(crate) const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
 pub(crate) const POST: HeaderValue = HeaderValue::from_static("POST");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =

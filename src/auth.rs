@@ -1,5 +1,6 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
+use crate::headers::{GET, HEAD, POST};
 use crate::session::SessionState;
 use crate::store::Snapshot;
 use crate::user::User;
@@ -11,9 +12,9 @@ use coset::iana::{
 use coset::{CborSerializable, CoseKey, Label, RegisteredLabel, RegisteredLabelWithPrivate};
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::CONTENT_TYPE;
+use hyper::header::{ALLOW, CONTENT_TYPE};
 use hyper::http::HeaderValue;
-use hyper::{Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::digest::{SHA256, digest};
@@ -272,18 +273,90 @@ fn new_challenge() -> [u8; 68] {
     challenge
 }
 
+//noinspection DuplicatedCode
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
+    let method = request.method();
     let user = match SessionState::from_headers(request.headers(), &store_cache).await {
         SessionState::Valid { user } => Some(user),
         SessionState::Expired { user } => Some(user),
         _ => None,
     };
-    if path == "/credential_creation_options" {
+    if path == "/credential_request_options" {
+        if method != Method::GET {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, GET);
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        let keys = user
+            .map(|user| {
+                store_cache
+                    .get_ref()
+                    .list::<PassKey>(&format!("/pk/{}/", user.id))
+                    .map(|(_, key)| Credentials::from_id(key.into_id()))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or(vec![]);
+        let challenge = new_challenge();
+        let credential_create = CredentialRequestOptions {
+            challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
+            allow_credentials: keys,
+        };
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, JSON)
+            .body(Either::Left(Full::from(
+                serde_json::to_vec(&credential_create).unwrap(),
+            )))
+            .unwrap();
+    } else if path == "/credentials" {
         if let Some(user) = user {
+            if method != Method::HEAD {
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(ALLOW, HEAD);
+                return response
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            }
+            return if store_cache
+                .get_ref()
+                .list::<PassKey>(&format!("/pk/{}/", user.id))
+                .next()
+                .is_some()
+            {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .status(StatusCode::NO_CONTENT)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap()
+            } else {
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .status(StatusCode::NOT_FOUND)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap()
+            };
+        }
+    } else if path == "/credential_creation_options" {
+        if let Some(user) = user {
+            if method != Method::GET {
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(ALLOW, GET);
+                return response
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            }
             let keys = store_cache
                 .get_ref()
                 .list::<PassKey>(&format!("/pk/{}/", user.id))
@@ -309,30 +382,17 @@ pub(crate) async fn handle_auth(
                 )))
                 .unwrap();
         }
-    } else if path == "/credential_request_options" {
-        let keys = user
-            .map(|user| {
-                store_cache
-                    .get_ref()
-                    .list::<PassKey>(&format!("/pk/{}/", user.id))
-                    .map(|(_, key)| Credentials::from_id(key.into_id()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or(vec![]);
-        let challenge = new_challenge();
-        let credential_create = CredentialRequestOptions {
-            challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-            allow_credentials: keys,
-        };
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, JSON)
-            .body(Either::Left(Full::from(
-                serde_json::to_vec(&credential_create).unwrap(),
-            )))
-            .unwrap();
     } else if path == "/record_credential" {
         if let Some(user) = user {
+            if request.method() != Method::POST {
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(ALLOW, POST);
+                return response
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            }
             if let Some(boundary) = request
                 .headers()
                 .get(CONTENT_TYPE)
@@ -413,6 +473,15 @@ pub(crate) async fn handle_auth(
             }
         }
     } else if path == "/validate_credential" {
+        if request.method() != Method::POST {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, POST);
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
         if let Some(boundary) = request
             .headers()
             .get(CONTENT_TYPE)
