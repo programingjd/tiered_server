@@ -1,6 +1,7 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
+use crate::otp::Otp;
 use crate::session::SessionState;
 use crate::store::Snapshot;
 use crate::user::User;
@@ -23,6 +24,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
+use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
 static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
@@ -277,6 +279,7 @@ fn new_challenge() -> [u8; 68] {
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    handler: Arc<Handler>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
@@ -334,13 +337,11 @@ pub(crate) async fn handle_auth(
                 .is_some()
             {
                 Response::builder()
-                    .status(StatusCode::OK)
                     .status(StatusCode::NO_CONTENT)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
             } else {
                 Response::builder()
-                    .status(StatusCode::OK)
                     .status(StatusCode::NOT_FOUND)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
@@ -578,6 +579,42 @@ pub(crate) async fn handle_auth(
                     }
                 }
             }
+        }
+    } else if path == "/otp" {
+        if request.method() != Method::POST {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, POST);
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        if let Some(user) = user {
+            if Otp::send(user, store_cache, handler).await.is_none() {
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            } else {
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            }
+        }
+    } else if path == "/logout" {
+        if request.method() != Method::GET {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, GET);
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        if let Some(user) = user {
+            todo!()
         }
     }
     Response::builder()

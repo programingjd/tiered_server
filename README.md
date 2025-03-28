@@ -124,7 +124,7 @@ one-time login tokens are under `/otp`:
 /otp/{otp_token} -> (user_id,timestamp)
 ```
 
-passkeys are user data are under `/pk`:
+passkeys and user data are under `/pk`:
 
 ```
 /pk/{user_id} -> {user}
@@ -256,3 +256,32 @@ Cloudflare Turnstile is supported if the variable `TURNSTILE_SECRET_KEY` is set.
 
 ---
 
+### API Endpoints
+
+The endpoints are under the api prefix.
+
+- `GET` `{api}/otp/{token}`<br>
+  One-time login link<br>
+  Validates the link, creates a new session for the user and redirects to the user landing page.
+
+- `HEAD` `{api}/auth/credentials`<br>
+  Login session existence check<br>
+  Returns a `204 No Content` if the user is known (the session might be expired though),
+  or a `404 Not Found` otherwise.
+
+- `GET` `{api}/auth/credential_request_options`<br>
+  Passkey challenge request.<br>
+  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialRequestOptions).
+
+- `GET` `{api}/auth/credential_creation_options`<br>
+  Passkey challenge for creating new credentials for the current user.<br>
+  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialCreationOptions).
+
+- `POST` `{api}/auth/record_credential`<br>
+  Checks and records a new passkey for the current user.
+
+- `POST` `{api}/auth/validate_credential`<br>
+  Checks the passkey and creates a user session if valid.
+
+- `POST` `{api}/auth/opt`<br>
+  Requests a new email with a one-time login link.

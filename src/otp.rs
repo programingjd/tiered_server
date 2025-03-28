@@ -50,12 +50,16 @@ struct NewCredentialsContext<'a> {
 }
 
 impl Otp {
-    pub(crate) async fn send(user: User, snapshot: &Snapshot, handler: &Handler) -> Option<()> {
+    pub(crate) async fn send(
+        user: User,
+        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        handler: Arc<Handler>,
+    ) -> Option<()> {
         let email = match &user.identification {
             IdentificationMethod::Email(email) => email.as_str(),
             _ => return None,
         };
-        let otp = Self::create(&user, snapshot).await?;
+        let otp = Self::create(&user, store_cache).await?;
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
         let link_url = format!(
@@ -85,7 +89,7 @@ impl Otp {
         Email::send(email, subject, html_body.as_str()).await
     }
 
-    async fn create(user: &User, snapshot: &Snapshot) -> Option<Self> {
+    async fn create(user: &User, store_cache: Arc<NonEmptyPinboard<Snapshot>>) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -106,36 +110,38 @@ impl Otp {
             user_id: user.id.clone(),
             timestamp,
         };
-        let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
+        let _ = Self::remove_expired(store_cache, Some(user.id.as_str())).await;
         Snapshot::set(key.as_str(), &otp).await?;
         Some(otp)
     }
 
-    async fn remove_expired(snapshot: &Snapshot, user_id: Option<&str>) -> Option<()> {
+    async fn remove_expired(
+        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        user_id: Option<&str>,
+    ) -> Option<()> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        Snapshot::delete(
-            snapshot
-                .list::<Otp>("/opt/")
-                .filter_map(|(k, otp)| {
-                    let elapsed = timestamp - otp.timestamp;
-                    if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
-                        Some(k)
-                    } else if let Some(user_id) = user_id {
-                        if otp.user_id == user_id {
-                            Some(k)
-                        } else {
-                            None
-                        }
+        let paths: Vec<String> = store_cache
+            .get_ref()
+            .list::<Otp>("/opt/")
+            .filter_map(|(k, otp)| {
+                let elapsed = timestamp - otp.timestamp;
+                if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
+                    Some(k.to_string())
+                } else if let Some(user_id) = user_id {
+                    if otp.user_id == user_id {
+                        Some(k.to_string())
                     } else {
                         None
                     }
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Snapshot::delete(paths.iter()).await
     }
 }
 
@@ -193,7 +199,7 @@ pub(crate) async fn handle_otp(
 async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
     let key = format!("/otp/{token}");
     let otp = snapshot.get_ref().get::<Otp>(key.as_str())?;
-    let _ = Snapshot::delete(vec![key.as_str()]).await;
+    let _ = Snapshot::delete(vec![key.as_str()].iter()).await;
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()

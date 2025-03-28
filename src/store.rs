@@ -123,10 +123,11 @@ impl Snapshot {
             _ => None,
         }
     }
-    pub(crate) async fn delete(paths: Vec<&str>) -> Option<()> {
+    pub(crate) async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {
         let store = store()?;
-        let mut iter = store
-            .delete_stream(stream::iter(paths.into_iter().map(|it| Ok(Path::from(it)))).boxed());
+        let mut iter = store.delete_stream(
+            stream::iter(paths.into_iter().map(|it| Ok(Path::from(it.as_ref())))).boxed(),
+        );
         while let Some(_metadata) = iter.next().await {}
         Some(())
     }

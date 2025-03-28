@@ -3,8 +3,10 @@ use crate::env::secret_value;
 use crate::otp::Otp;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
+use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::SystemTime;
 use zip_static_handler::handler::Handler;
 
@@ -30,7 +32,10 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub(crate) async fn ensure_admin_users_exist(snapshot: &Snapshot, handler: &Handler) -> Option<()> {
+pub(crate) async fn ensure_admin_users_exist(
+    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    handler: Arc<Handler>,
+) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
     for user in value.split(";") {
         let mut iter = user.split(",");
@@ -44,11 +49,11 @@ pub(crate) async fn ensure_admin_users_exist(snapshot: &Snapshot, handler: &Hand
             last_name.to_string(),
             date_of_birth,
             true,
-            snapshot,
+            store_cache.clone(),
         )
         .await
         {
-            Otp::send(user, snapshot, handler).await?;
+            Otp::send(user, store_cache.clone(), handler.clone()).await?;
         }
     }
     Some(())
@@ -61,7 +66,7 @@ impl User {
         last_name: String,
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
-        store_cache: &Snapshot,
+        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -79,7 +84,7 @@ impl User {
         );
         let identification = IdentificationMethod::Email(email);
         let key = format!("/pk/{id}");
-        if store_cache.get::<User>(key.as_str()).is_some() {
+        if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
             return None;
         }
         let user = Self {

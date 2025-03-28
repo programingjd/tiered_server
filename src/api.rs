@@ -7,14 +7,16 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
+use zip_static_handler::handler::Handler;
 
 pub(crate) async fn handle_api(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    handler: Arc<Handler>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[4..];
     if path.starts_with("/auth/") {
-        return handle_auth(request, store_cache).await;
+        return handle_auth(request, store_cache, handler).await;
     } else if path.starts_with("/otp/") {
         return handle_otp(request, store_cache).await;
     } else if path.starts_with("/reg/") {

@@ -187,13 +187,13 @@ async fn main() {
         .expect("failed to extract static content");
 
     let snapshot = snapshot(None).await.expect("failed to cache store content");
-    ensure_admin_users_exist(&snapshot, &static_handler)
+    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
+    let static_handler = Arc::new(static_handler);
+    ensure_admin_users_exist(store_cache.clone(), static_handler.clone())
         .await
         .expect("failed to get or create admin users");
-    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
     update_store_cache_loop(store_cache.clone());
 
-    let static_handler = Arc::new(static_handler);
     loop {
         if let Ok((tcp_stream, remote_address)) = listener.accept().await {
             let store_cache = store_cache.clone();
@@ -234,7 +234,7 @@ async fn main() {
                                         // api requests
                                         else if api_path_prefix.matches(path) {
                                             Ok::<_, Infallible>(
-                                                handle_api(request, store_cache).await,
+                                                handle_api(request, store_cache, handler).await,
                                             )
                                         } else {
                                             if user_path_prefix.matches(path) {
