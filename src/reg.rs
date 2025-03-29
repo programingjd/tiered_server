@@ -21,7 +21,7 @@ pub(crate) async fn handle_reg(
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[8..];
-    if let SessionState::Valid { user } =
+    if let SessionState::Valid { user, .. } =
         SessionState::from_headers(request.headers(), &store_cache).await
     {
         if path == "/code" && user.admin {

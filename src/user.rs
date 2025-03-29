@@ -53,7 +53,7 @@ pub(crate) async fn ensure_admin_users_exist(
         )
         .await
         {
-            Otp::send(user, store_cache.clone(), handler.clone()).await?;
+            Otp::send(&user, store_cache.clone(), handler.clone()).await?;
         }
     }
     Some(())

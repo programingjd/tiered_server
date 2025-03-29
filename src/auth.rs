@@ -2,7 +2,7 @@ use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
 use crate::otp::Otp;
-use crate::session::SessionState;
+use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SessionState};
 use crate::store::Snapshot;
 use crate::user::User;
 use crate::{DOMAIN_APEX, DOMAIN_TITLE};
@@ -13,7 +13,7 @@ use coset::iana::{
 use coset::{CborSerializable, CoseKey, Label, RegisteredLabel, RegisteredLabelWithPrivate};
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ALLOW, CONTENT_TYPE};
+use hyper::header::{ALLOW, CONTENT_TYPE, SET_COOKIE};
 use hyper::http::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
@@ -283,9 +283,10 @@ pub(crate) async fn handle_auth(
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
-    let user = match SessionState::from_headers(request.headers(), &store_cache).await {
-        SessionState::Valid { user } => Some(user),
-        SessionState::Expired { user } => Some(user),
+    let session_state = SessionState::from_headers(request.headers(), &store_cache).await;
+    let user = match session_state {
+        SessionState::Valid { ref user, .. } => Some(user),
+        SessionState::Expired { ref user } => Some(user),
         _ => None,
     };
     if path == "/credential_request_options" {
@@ -373,7 +374,7 @@ pub(crate) async fn handle_auth(
                     PubKeyCredParams::rs256(),
                 ],
                 rp: Rp::default(),
-                user: UserId::from(&user),
+                user: UserId::from(user),
             };
             return Response::builder()
                 .status(StatusCode::OK)
@@ -613,8 +614,15 @@ pub(crate) async fn handle_auth(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         }
-        if let Some(user) = user {
-            todo!()
+        if user.is_some() {
+            if let SessionState::Valid { session_id, .. } = session_state {
+                Snapshot::delete([format!("/sid/{session_id}")].iter()).await;
+            }
+            let mut response = Response::builder().status(StatusCode::OK);
+            let headers = response.headers_mut().unwrap();
+            headers.append(SET_COOKIE, DELETE_ST_COOKIES);
+            headers.append(SET_COOKIE, DELETE_SID_COOKIES);
+            return response.body(Either::Right(Empty::new())).unwrap();
         }
     }
     Response::builder()

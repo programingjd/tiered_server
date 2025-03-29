@@ -51,7 +51,7 @@ struct NewCredentialsContext<'a> {
 
 impl Otp {
     pub(crate) async fn send(
-        user: User,
+        user: &User,
         store_cache: Arc<NonEmptyPinboard<Snapshot>>,
         handler: Arc<Handler>,
     ) -> Option<()> {
@@ -59,7 +59,7 @@ impl Otp {
             IdentificationMethod::Email(email) => email.as_str(),
             _ => return None,
         };
-        let otp = Self::create(&user, store_cache).await?;
+        let otp = Self::create(user, store_cache).await?;
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
         let link_url = format!(
@@ -82,7 +82,7 @@ impl Otp {
             .get_template("new_credentials")
             .ok()?
             .render(NewCredentialsContext {
-                user: &user,
+                user: user,
                 link_url: link_url.as_str(),
             })
             .ok()?;
@@ -199,7 +199,7 @@ pub(crate) async fn handle_otp(
 async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
     let key = format!("/otp/{token}");
     let otp = snapshot.get_ref().get::<Otp>(key.as_str())?;
-    let _ = Snapshot::delete(vec![key.as_str()].iter()).await;
+    let _ = Snapshot::delete([key.as_str()].iter()).await;
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()

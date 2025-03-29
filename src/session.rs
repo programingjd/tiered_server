@@ -20,8 +20,14 @@ pub(crate) static LOGIN_PATH: LazyLock<&str> =
 
 pub(crate) const SID_EXPIRED: HeaderValue =
     HeaderValue::from_static("st=0; Secure; SameSite=Strict; Max-Age=34560000");
+pub(crate) const DELETE_ST_COOKIES: HeaderValue = HeaderValue::from_static(
+    "st=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+);
+pub(crate) const DELETE_SID_COOKIES: HeaderValue = HeaderValue::from_static(
+    "sid=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+);
 
-pub(crate) enum SessionState {
+pub(crate) enum SessionState<'a> {
     Missing,
     Expired {
         #[allow(dead_code)]
@@ -29,6 +35,7 @@ pub(crate) enum SessionState {
     },
     Valid {
         user: User,
+        session_id: &'a str,
     },
 }
 
@@ -61,11 +68,11 @@ impl User {
     }
 }
 
-impl SessionState {
+impl<'a> SessionState<'a> {
     pub(crate) async fn from_headers(
-        headers: &HeaderMap<HeaderValue>,
+        headers: &'a HeaderMap<HeaderValue>,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-    ) -> SessionState {
+    ) -> SessionState<'a> {
         let cookie_value = headers.get_all(COOKIE).iter().find_map(|it| {
             it.to_str()
                 .ok()
@@ -95,7 +102,7 @@ impl SessionState {
                     .as_secs() as u32
                     - 180;
                 if session.timestamp < now && now - session.timestamp < MAX_AGE {
-                    SessionState::Valid { user }
+                    SessionState::Valid { user, session_id }
                 } else {
                     SessionState::Expired { user }
                 }
