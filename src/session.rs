@@ -40,9 +40,9 @@ pub(crate) enum SessionState<'a> {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Session {
-    user: User,
-    timestamp: u32,
+pub(crate) struct Session {
+    pub(crate) user: User,
+    pub(crate) timestamp: u32,
 }
 
 impl User {

@@ -2,7 +2,7 @@ use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
 use crate::otp::Otp;
-use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SessionState};
+use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, Session, SessionState};
 use crate::store::Snapshot;
 use crate::user::User;
 use crate::{DOMAIN_APEX, DOMAIN_TITLE};
@@ -284,10 +284,10 @@ pub(crate) async fn handle_auth(
     let path = &request.uri().path()[9..];
     let method = request.method();
     let session_state = SessionState::from_headers(request.headers(), &store_cache).await;
-    let user = match session_state {
-        SessionState::Valid { ref user, .. } => Some(user),
-        SessionState::Expired { ref user } => Some(user),
-        _ => None,
+    let (user, session_id) = match session_state {
+        SessionState::Valid { user, session_id } => (Some(user), Some(session_id)),
+        SessionState::Expired { user } => (Some(user), None),
+        _ => (None, None),
     };
     if path == "/credential_request_options" {
         if method != Method::GET {
@@ -374,7 +374,7 @@ pub(crate) async fn handle_auth(
                     PubKeyCredParams::rs256(),
                 ],
                 rp: Rp::default(),
-                user: UserId::from(user),
+                user: UserId::from(&user),
             };
             return Response::builder()
                 .status(StatusCode::OK)
@@ -592,7 +592,7 @@ pub(crate) async fn handle_auth(
                 .unwrap();
         }
         if let Some(user) = user {
-            if Otp::send(user, store_cache, handler).await.is_none() {
+            if Otp::send(&user, store_cache, handler).await.is_none() {
                 return Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(Either::Right(Empty::new()))
@@ -604,7 +604,7 @@ pub(crate) async fn handle_auth(
                     .unwrap();
             }
         }
-    } else if path == "/logout" {
+    } else if path == "/forget_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
@@ -615,13 +615,36 @@ pub(crate) async fn handle_auth(
                 .unwrap();
         }
         if user.is_some() {
-            if let SessionState::Valid { session_id, .. } = session_state {
+            if let Some(session_id) = session_id {
                 Snapshot::delete([format!("/sid/{session_id}")].iter()).await;
             }
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
             headers.append(SET_COOKIE, DELETE_ST_COOKIES);
             headers.append(SET_COOKIE, DELETE_SID_COOKIES);
+            return response.body(Either::Right(Empty::new())).unwrap();
+        }
+    } else if path == "/disconnect_user" {
+        if request.method() != Method::GET {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, GET);
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        if let Some(user) = user {
+            if let Some(session_id) = session_id {
+                Snapshot::set(
+                    &format!("/sid/{session_id}"),
+                    &Session { user, timestamp: 0 },
+                )
+                .await;
+            }
+            let mut response = Response::builder().status(StatusCode::OK);
+            let headers = response.headers_mut().unwrap();
+            headers.insert(SET_COOKIE, SID_EXPIRED);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
     }

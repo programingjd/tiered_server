@@ -286,5 +286,8 @@ The endpoints are under the api prefix.
 - `POST` `{api}/auth/opt`<br>
   Requests a new email with a one-time login link.
 
-- `GET` `{api}/auth/logout`<br>
+- `GET` `{api}/auth/forget_user`<br>
   Deletes the session and the associated cookies.
+
+- `GET` `{api}/auth/disconnect_user`<br>
+  Invalidates the session and update the `st` cookie.
