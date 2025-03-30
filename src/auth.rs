@@ -4,7 +4,7 @@ use crate::headers::{GET, HEAD, POST};
 use crate::otp::Otp;
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, Session, SessionState};
 use crate::store::Snapshot;
-use crate::user::User;
+use crate::user::{IdentificationMethod, User};
 use crate::{DOMAIN_APEX, DOMAIN_TITLE};
 use base64_simd::URL_SAFE_NO_PAD;
 use coset::iana::{
@@ -24,6 +24,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
+use tokio::spawn;
 use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
@@ -592,18 +593,89 @@ pub(crate) async fn handle_auth(
                 .unwrap();
         }
         if let Some(user) = user {
-            if Otp::send(&user, store_cache, handler).await.is_none() {
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap();
-            } else {
-                return Response::builder()
-                    .status(StatusCode::OK)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap();
+            let store_cache = store_cache.clone();
+            let handler = handler.clone();
+            let _ = spawn(async move { Otp::send(&user, store_cache, handler).await });
+        }
+        if let Some(boundary) = request
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|it| it.to_str().ok())
+            .and_then(|it| parse_boundary(it).ok())
+        {
+            let mut multipart = Multipart::with_constraints(
+                request.into_body().into_data_stream(),
+                boundary,
+                Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            );
+            let mut email = None;
+            let mut first_name = None;
+            let mut last_name = None;
+            let mut dob = None;
+            while let Ok(Some(field)) = multipart.next_field().await {
+                match field.name() {
+                    Some("email") => {
+                        if let Ok(it) = field.text().await {
+                            email = Some(it);
+                        }
+                    }
+                    Some("last_name") => {
+                        if let Ok(it) = field.text().await {
+                            last_name = Some(it);
+                        }
+                    }
+                    Some("first_name") => {
+                        if let Ok(it) = field.text().await {
+                            first_name = Some(it);
+                        }
+                    }
+                    Some("dob") => {
+                        if let Ok(it) = field.text().await {
+                            dob = it.parse::<u32>().ok();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let single = single(store_cache.get_ref().list::<User>("/acc/").filter_map(
+                |(_, user)| {
+                    if let Some(ref email) = email {
+                        if let IdentificationMethod::Email(ref e) = user.identification {
+                            if email != e {
+                                return None;
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    if let Some(ref last_name) = last_name {
+                        if last_name != &user.last_name {
+                            return None;
+                        }
+                    }
+                    if let Some(ref first_name) = first_name {
+                        if first_name != &user.first_name {
+                            return None;
+                        }
+                    }
+                    if let Some(dob) = dob {
+                        if dob != user.date_of_birth {
+                            return None;
+                        }
+                    }
+                    Some(user)
+                },
+            ));
+            if let Some(user) = single {
+                let store_cache = store_cache.clone();
+                let handler = handler.clone();
+                let _ = spawn(async move { Otp::send(&user, store_cache, handler).await });
             }
         }
+        return Response::builder()
+            .status(StatusCode::ACCEPTED)
+            .body(Either::Right(Empty::new()))
+            .unwrap();
     } else if path == "/forget_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
@@ -652,4 +724,16 @@ pub(crate) async fn handle_auth(
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))
         .unwrap()
+}
+
+fn single<T>(mut iter: impl Iterator<Item = T>) -> Option<T> {
+    if let Some(item) = iter.next() {
+        if iter.next().is_some() {
+            None
+        } else {
+            Some(item)
+        }
+    } else {
+        None
+    }
 }

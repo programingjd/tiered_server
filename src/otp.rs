@@ -208,7 +208,7 @@ async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) ->
     if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
         None
     } else {
-        let key = format!("/pk/{}", otp.user_id);
+        let key = format!("/acc/{}", otp.user_id);
         let user = snapshot.get_ref().get(key.as_str())?;
         Some(user)
     }

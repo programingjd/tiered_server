@@ -83,7 +83,7 @@ impl User {
                 .collect::<Vec<_>>(),
         );
         let identification = IdentificationMethod::Email(email);
-        let key = format!("/pk/{id}");
+        let key = format!("/acc/{id}");
         if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
             return None;
         }

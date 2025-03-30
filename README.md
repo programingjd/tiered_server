@@ -124,10 +124,15 @@ one-time login tokens are under `/otp`:
 /otp/{otp_token} -> (user_id,timestamp)
 ```
 
-passkeys and user data are under `/pk`:
+user data is under `/acc`:
 
 ```
-/pk/{user_id} -> {user}
+/acc/{user_id} -> {user}
+```
+
+passkeys and under `/pk`:
+
+```
 /pk/{user_id}/{passkey_id} -> {passkey}
 ```
 
@@ -135,6 +140,13 @@ registrations pending approval are under `/reg`:
 
 ```
 /reg/{user_id} -> {user}
+```
+
+security related counters are under `/sec`:
+
+```
+/sec/{user_id}/otp -> {rate limiting counters}
+/sec/{user_id}/auth -> {rate limiting counters}
 ```
 
 <br>
