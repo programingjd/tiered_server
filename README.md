@@ -142,13 +142,14 @@ registrations pending approval are under `/reg`:
 /reg/{user_id} -> {user}
 ```
 
+<!--
 security related counters are under `/sec`:
 
 ```
 /sec/{user_id}/otp -> {rate limiting counters}
 /sec/{user_id}/auth -> {rate limiting counters}
 ```
-
+-->
 <br>
 
 ---
@@ -230,8 +231,8 @@ the page should redirect to the login page.
 
 The login page handles both login and new account requests.
 
-The login page first asks for a passkey. If there's an expired session for a
-specific user, then it asks for a passkey for that user only.
+The login page first asks for a passkey. <!--If there's an expired session for a
+specific user, then it asks for a passkey for that user only.-->
 
 If it gets a passkey, then it updates the session and cookies and
 redirects to the user landing page.

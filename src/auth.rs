@@ -300,19 +300,20 @@ pub(crate) async fn handle_auth(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         }
-        let keys = user
-            .map(|user| {
-                store_cache
-                    .get_ref()
-                    .list::<PassKey>(&format!("/pk/{}/", user.id))
-                    .map(|(_, key)| Credentials::from_id(key.into_id()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or(vec![]);
+        // let keys = user
+        //     .map(|user| {
+        //         store_cache
+        //             .get_ref()
+        //             .list::<PassKey>(&format!("/pk/{}/", user.id))
+        //             .map(|(_, key)| Credentials::from_id(key.into_id()))
+        //             .collect::<Vec<_>>()
+        //     })
+        //     .unwrap_or(vec![]);
         let challenge = new_challenge();
         let credential_create = CredentialRequestOptions {
             challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-            allow_credentials: keys,
+            // allow_credentials: keys,
+            allow_credentials: vec![],
         };
         return Response::builder()
             .status(StatusCode::OK)
@@ -592,11 +593,11 @@ pub(crate) async fn handle_auth(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         }
-        if let Some(user) = user {
-            let store_cache = store_cache.clone();
-            let handler = handler.clone();
-            let _ = spawn(async move { Otp::send(&user, store_cache, handler).await });
-        }
+        // if let Some(user) = user {
+        //     let store_cache = store_cache.clone();
+        //     let handler = handler.clone();
+        //     let _ = spawn(async move { Otp::send(&user, store_cache, handler).await });
+        // }
         if let Some(boundary) = request
             .headers()
             .get(CONTENT_TYPE)
