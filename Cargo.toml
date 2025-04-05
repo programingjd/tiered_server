@@ -27,6 +27,21 @@ version = "0.3"
 default-features = false
 features = ["std"]
 
+[dependencies.punycode]
+version = "0.4"
+default-features = false
+features = []
+
+[dependencies.unicode-normalization]
+version = "0.1"
+default-features = false
+features = ["std"]
+
+[dependencies.unicode-general-category]
+version = "1"
+default-features = false
+features = []
+
 [dependencies.totp_rfc6238]
 version = "0.6"
 default-features = false

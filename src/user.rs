@@ -330,10 +330,11 @@ pub(crate) async fn handle_user(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
                 .unwrap();
-        } else if let SessionState::Valid { user, .. } =
+        } else if let SessionState::Valid { user: _user, .. } =
             SessionState::from_headers(request.headers(), &store_cache).await
         {
-            // TODO
+            // TODO update user field if post
+            // TODO get user info if get
         }
     }
     Response::builder()
