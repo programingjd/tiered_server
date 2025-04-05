@@ -20,6 +20,8 @@ use pinboard::NonEmptyPinboard;
 use ring::digest::{SHA256, digest};
 use ring::hmac::{HMAC_SHA256, Key, Tag, sign};
 use ring::rand::{SecureRandom, SystemRandom};
+use ring::signature;
+use ring::signature::{ECDSA_P256_SHA256_ASN1, ED25519, RSA_PKCS1_2048_8192_SHA256};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
@@ -131,9 +133,9 @@ struct ClientData<'a> {
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type")]
 enum PassKey {
-    ED25519 { material: String, id: String },
-    ES256 { material: String, id: String },
-    RS256 { material: String, id: String },
+    ED25519 { id: String, x: String },
+    ES256 { id: String, x: String, y: String },
+    RS256 { id: String, n: String },
 }
 
 impl PassKey {
@@ -154,23 +156,73 @@ impl PassKey {
     fn ed25519(id: String, bytes: &[u8]) -> Self {
         Self::ED25519 {
             id,
-            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+            x: URL_SAFE_NO_PAD.encode_to_string(bytes),
         }
     }
-    fn es256(id: String, bytes: &[u8]) -> Self {
+    fn es256(id: String, x: &[u8], y: &[u8]) -> Self {
         Self::ES256 {
             id,
-            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+            x: URL_SAFE_NO_PAD.encode_to_string(x),
+            y: URL_SAFE_NO_PAD.encode_to_string(y),
         }
     }
     fn rsa256(id: String, bytes: &[u8]) -> Self {
         Self::RS256 {
             id,
-            material: URL_SAFE_NO_PAD.encode_to_string(bytes),
+            n: URL_SAFE_NO_PAD.encode_to_string(bytes),
         }
     }
-    fn sign(self, _authenticator_data: &[u8], _client_data_hash: &[u8]) -> Vec<u8> {
-        todo!()
+    fn verify(self, signature: &[u8], authenticator_data: &[u8], client_data_hash: &[u8]) -> bool {
+        match self {
+            PassKey::ED25519 { x: ref x, .. } => {
+                if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
+                    let mut public_key = signature::UnparsedPublicKey::new(&ED25519, x);
+                    let mut payload =
+                        Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                    payload.extend(authenticator_data.iter());
+                    payload.extend(client_data_hash.iter());
+                    return public_key.verify(&payload, signature).is_ok();
+                };
+            }
+            PassKey::ES256 { ref x, ref y, .. } => {
+                if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
+                    if let Ok(y) = URL_SAFE_NO_PAD.decode_to_vec(y) {
+                        let mut public_key_sec1 = [0u8; 65];
+                        public_key_sec1[0] = 0x04;
+                        public_key_sec1[1..33].copy_from_slice(&x);
+                        public_key_sec1[33..].copy_from_slice(&y);
+                        let mut key = signature::UnparsedPublicKey::new(
+                            &ECDSA_P256_SHA256_ASN1,
+                            public_key_sec1,
+                        );
+
+                        let mut payload =
+                            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                        payload.extend(authenticator_data.iter());
+                        payload.extend(client_data_hash.iter());
+                        return key.verify(&payload, signature).is_ok();
+                    }
+                };
+            }
+            PassKey::RS256 { ref n, .. } => {
+                if let Ok(n) = URL_SAFE_NO_PAD.decode_to_vec(n) {
+                    let mut public_key_sec1 = [0u8; 65];
+                    // TODO
+                    let mut key = signature::UnparsedPublicKey::new(
+                        &RSA_PKCS1_2048_8192_SHA256,
+                        public_key_sec1,
+                    );
+
+                    let mut payload =
+                        Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                    payload.extend(authenticator_data.iter());
+                    payload.extend(client_data_hash.iter());
+                    return key.verify(&payload, signature).is_ok();
+                };
+            }
+            _ => {}
+        }
+        false
     }
     fn new(id: String, alg: i16, cose: &[u8]) -> Option<Self> {
         match alg {
@@ -191,14 +243,14 @@ impl PassKey {
                         }
                     });
                     if crv == Some(EllipticCurve::Ed25519 as u64) {
-                        if let Some(d) = key.params.iter().find_map(|(k, v)| {
-                            if k == &Label::Int(OkpKeyParameter::D.to_i64()) {
+                        if let Some(x) = key.params.iter().find_map(|(k, v)| {
+                            if k == &Label::Int(OkpKeyParameter::X.to_i64()) {
                                 v.as_bytes().map(|it| it.as_slice())
                             } else {
                                 None
                             }
                         }) {
-                            return Some(PassKey::ed25519(id, d));
+                            return Some(PassKey::ed25519(id, x));
                         }
                     }
                 }
@@ -211,14 +263,22 @@ impl PassKey {
                         }
                     });
                     if crv == Some(EllipticCurve::P_256 as u64) {
-                        if let Some(d) = key.params.iter().find_map(|(k, v)| {
-                            if k == &Label::Int(Ec2KeyParameter::D.to_i64()) {
+                        if let Some(x) = key.params.iter().find_map(|(k, v)| {
+                            if k == &Label::Int(Ec2KeyParameter::X.to_i64()) {
                                 v.as_bytes().map(|it| it.as_slice())
                             } else {
                                 None
                             }
                         }) {
-                            return Some(PassKey::es256(id, d));
+                            if let Some(y) = key.params.iter().find_map(|(k, v)| {
+                                if k == &Label::Int(Ec2KeyParameter::Y.to_i64()) {
+                                    v.as_bytes().map(|it| it.as_slice())
+                                } else {
+                                    None
+                                }
+                            }) {
+                                return Some(PassKey::es256(id, x, y));
+                            }
                         }
                     }
                 }
@@ -424,7 +484,7 @@ pub(crate) async fn handle_auth(
                         }
                         Some("k") => {
                             if let Ok(it) = field.bytes().await {
-                                k.extend_from_slice(it.as_ref());
+                                k.extend(it.as_ref().iter());
                             }
                         }
                         Some("c") => {
@@ -507,7 +567,7 @@ pub(crate) async fn handle_auth(
                     }
                     Some("s") => {
                         if let Ok(it) = field.bytes().await {
-                            s.extend_from_slice(it.as_ref());
+                            s.extend(it.as_ref().iter());
                         }
                     }
                     Some("u") => {
@@ -544,7 +604,7 @@ pub(crate) async fn handle_auth(
                     }
                     Some("d") => {
                         if let Ok(it) = field.bytes().await {
-                            d.extend_from_slice(it.as_ref());
+                            d.extend(it.as_ref().iter());
                         }
                     }
                     _ => {}
@@ -563,11 +623,7 @@ pub(crate) async fn handle_auth(
                     .get_ref()
                     .get::<PassKey>(&format!("/pk/{u}/{i}"))
                 {
-                    if passkey
-                        .sign(d.as_slice(), hash.unwrap().as_slice())
-                        .as_slice()
-                        == s.as_slice()
-                    {
+                    if passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice()) {
                         let mut response = Response::builder().status(StatusCode::OK);
                         // response.headers_mut().unwrap().insert(
                         //     SET_COOKIE,

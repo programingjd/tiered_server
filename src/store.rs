@@ -166,7 +166,7 @@ async fn download(payload: GetResultPayload) -> Option<Vec<u8>> {
         GetResultPayload::Stream(mut stream) => {
             while let Some(result) = stream.next().await {
                 match result {
-                    Ok(chunk) => vec.extend_from_slice(&chunk),
+                    Ok(chunk) => vec.extend(chunk.iter()),
                     Err(_) => return None,
                 }
             }

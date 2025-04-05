@@ -101,6 +101,7 @@ pub(crate) async fn ensure_admin_users_exist(
             None,
             date_of_birth,
             true,
+            false,
             store_cache.clone(),
         )
         .await
@@ -122,6 +123,7 @@ impl User {
         first_name_norm: Option<String>,
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
+        needs_validation: bool,
         store_cache: Arc<NonEmptyPinboard<Snapshot>>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
@@ -142,7 +144,7 @@ impl User {
             normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
             address: email,
         });
-        let key = format!("/acc/{id}");
+        let key = format!("/{}/{id}", if needs_validation { "reg" } else { "acc" });
         if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
             return None;
         }
@@ -251,7 +253,7 @@ pub(crate) async fn handle_user(
                     let first_name = first_name.unwrap();
                     let first_name_norm = normalize_first_name(&first_name);
                     let dob = dob.unwrap();
-                    let skip_moderation = if let Some(otp) = otp {
+                    let needs_moderation = if let Some(otp) = otp {
                         if let Some(key) = *VALIDATION_TOTP_SECRET {
                             let generator = TotpGenerator::new().build();
                             if generator
@@ -259,7 +261,7 @@ pub(crate) async fn handle_user(
                                 .map(|it| it.contains(&otp))
                                 .unwrap_or(false)
                             {
-                                true
+                                false
                             } else {
                                 return Response::builder()
                                     .status(StatusCode::FORBIDDEN)
@@ -267,56 +269,56 @@ pub(crate) async fn handle_user(
                                     .unwrap();
                             }
                         } else {
-                            false
+                            true
                         }
                     } else {
-                        false
+                        true
                     };
-                    if skip_moderation {
-                        let existing =
-                            store_cache
-                                .get_ref()
-                                .list::<User>("/acc/")
-                                .any(|(_, ref user)| {
-                                    if let IdentificationMethod::Email(ref email) =
-                                        user.identification
-                                    {
-                                        email_norm == email.normalized_address
-                                            && user.date_of_birth == dob
-                                            && user.last_name_norm == last_name_norm
-                                            && user.first_name_norm == first_name_norm
-                                    } else {
-                                        false
-                                    }
-                                });
-                        if !existing {
-                            let email_trim = email.trim();
-                            let last_name_trim = last_name.trim();
-                            let first_name_trim = first_name.trim();
-                            let _ = User::create(
-                                if email.len() == email_trim.len() {
-                                    email
+                    let existing =
+                        store_cache
+                            .get_ref()
+                            .list::<User>("/acc/")
+                            .any(|(_, ref user)| {
+                                if let IdentificationMethod::Email(ref email) = user.identification
+                                {
+                                    email_norm == email.normalized_address
+                                        && user.date_of_birth == dob
+                                        && user.last_name_norm == last_name_norm
+                                        && user.first_name_norm == first_name_norm
                                 } else {
-                                    email_trim.to_string()
-                                },
-                                Some(email_norm),
-                                if last_name.len() == last_name_trim.len() {
-                                    last_name
-                                } else {
-                                    last_name_trim.to_string()
-                                },
-                                Some(last_name_norm),
-                                if first_name.len() == first_name_trim.len() {
-                                    first_name
-                                } else {
-                                    first_name_trim.to_string()
-                                },
-                                Some(first_name_norm),
-                                dob,
-                                false,
-                                store_cache,
-                            )
-                            .await;
+                                    false
+                                }
+                            });
+                    if !existing {
+                        let email_trim = email.trim();
+                        let last_name_trim = last_name.trim();
+                        let first_name_trim = first_name.trim();
+                        let _ = User::create(
+                            if email.len() == email_trim.len() {
+                                email
+                            } else {
+                                email_trim.to_string()
+                            },
+                            Some(email_norm),
+                            if last_name.len() == last_name_trim.len() {
+                                last_name
+                            } else {
+                                last_name_trim.to_string()
+                            },
+                            Some(last_name_norm),
+                            if first_name.len() == first_name_trim.len() {
+                                first_name
+                            } else {
+                                first_name_trim.to_string()
+                            },
+                            Some(first_name_norm),
+                            dob,
+                            false,
+                            needs_moderation,
+                            store_cache,
+                        )
+                        .await;
+                        if !needs_moderation {
                             // TODO send email
                         }
                     }
