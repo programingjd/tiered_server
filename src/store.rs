@@ -23,7 +23,7 @@ use std::time::{Duration, SystemTime};
 use std::{iter, thread};
 use tokio::time::{MissedTickBehavior, interval};
 
-pub(crate) struct Snapshot {
+pub struct Snapshot {
     entries: HashMap<String, Entry>,
     #[allow(dead_code)]
     timestamp: u32,
@@ -87,7 +87,7 @@ pub(crate) async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
 }
 
 impl Snapshot {
-    pub(crate) fn get<T: DeserializeOwned>(&self, path: &str) -> Option<T> {
+    pub fn get<T: DeserializeOwned>(&self, path: &str) -> Option<T> {
         self.entries.get(path).and_then(|entry| {
             let payload = entry.data.as_slice();
             let nonce: [u8; 12] = payload[0..12].try_into().unwrap();
@@ -95,10 +95,7 @@ impl Snapshot {
             decrypt(nonce, encrypted_base64)
         })
     }
-    pub(crate) fn list<T: DeserializeOwned>(
-        &self,
-        prefix: &str,
-    ) -> impl Iterator<Item = (&str, T)> {
+    pub fn list<T: DeserializeOwned>(&self, prefix: &str) -> impl Iterator<Item = (&str, T)> {
         self.entries.iter().filter_map(move |(k, v)| {
             if k.starts_with(prefix) {
                 let payload = v.data.as_slice();
@@ -110,7 +107,7 @@ impl Snapshot {
             }
         })
     }
-    pub(crate) async fn set<T: Serialize>(path: &str, data: &T) -> Option<()> {
+    pub async fn set<T: Serialize>(path: &str, data: &T) -> Option<()> {
         let store = store()?;
         let path = Path::from(path);
         let encrypted = encrypt(data);
@@ -123,7 +120,7 @@ impl Snapshot {
             _ => None,
         }
     }
-    pub(crate) async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {
+    pub async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {
         let store = store()?;
         let mut iter = store.delete_stream(
             stream::iter(paths.into_iter().map(|it| Ok(Path::from(it.as_ref())))).boxed(),

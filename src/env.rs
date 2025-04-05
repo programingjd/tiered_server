@@ -42,7 +42,7 @@ static ENV: LazyLock<HashMap<ConfigurationKey, &'static str>> = LazyLock::new(||
 });
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
-pub(crate) enum ConfigurationKey {
+pub enum ConfigurationKey {
     DomainApex,
     DomainTitle,
     BindAddress,
@@ -111,7 +111,7 @@ impl ConfigurationKey {
     }
 }
 
-pub(crate) fn secret_value(key: ConfigurationKey) -> Option<&'static str> {
+pub fn secret_value(key: ConfigurationKey) -> Option<&'static str> {
     match ENV.get(&key).or_else(|| FILE.get(key.name())) {
         Some(value) => Some(*value),
         None => None,

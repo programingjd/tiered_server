@@ -1,31 +1,80 @@
-use crate::env::ConfigurationKey::AdminUsers;
+use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
+use crate::norm::{
+    normalize_email, normalize_first_name, normalize_last_name, normalize_phone_number,
+};
 use crate::otp::Otp;
+use crate::session::SessionState;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
+use http_body_util::{BodyExt, Either, Empty, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::header::{CONTENT_TYPE, HeaderValue};
+use hyper::{Method, Request, Response, StatusCode};
+use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::sync::{Arc, LazyLock};
+use std::time::{SystemTime, UNIX_EPOCH};
+use totp_rfc6238::TotpGenerator;
 use zip_static_handler::handler::Handler;
 
+const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
+const SECS_PER_YEAR: u64 = 31_556_952;
+
+//noinspection SpellCheckingInspection
+static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(ValidationTotpSecret));
+
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) enum IdentificationMethod {
-    Email(String),
-    Sms(String),
+pub struct Email {
+    pub address: String,
+    pub normalized_address: String,
+}
+
+impl From<String> for Email {
+    fn from(value: String) -> Self {
+        Self {
+            normalized_address: normalize_email(&value),
+            address: value,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Sms {
+    number: String,
+    normalized_number: String,
+}
+
+impl From<String> for Sms {
+    fn from(value: String) -> Self {
+        Self {
+            normalized_number: normalize_phone_number(&value),
+            number: value,
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum IdentificationMethod {
+    Email(Email),
+    Sms(Sms),
     NotSet,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct User {
-    pub(crate) id: String,
-    pub(crate) identification: IdentificationMethod,
-    pub(crate) first_name: String,
-    pub(crate) last_name: String,
-    pub(crate) date_of_birth: u32,
+pub struct User {
+    pub id: String,
+    pub identification: IdentificationMethod,
+    pub last_name: String,
+    pub last_name_norm: String,
+    pub first_name: String,
+    pub first_name_norm: String,
+    pub date_of_birth: u32,
     #[serde(skip_serializing_if = "is_default")]
-    pub(crate) admin: bool,
+    pub admin: bool,
 }
 
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
@@ -44,9 +93,12 @@ pub(crate) async fn ensure_admin_users_exist(
         let last_name = iter.next()?;
         let date_of_birth = iter.next()?.parse::<u32>().ok()?;
         if let Some(user) = User::create(
-            email.to_string(),
-            first_name.to_string(),
-            last_name.to_string(),
+            email.trim().to_string(),
+            None,
+            last_name.trim().to_string(),
+            None,
+            first_name.trim().to_string(),
+            None,
             date_of_birth,
             true,
             store_cache.clone(),
@@ -60,10 +112,14 @@ pub(crate) async fn ensure_admin_users_exist(
 }
 
 impl User {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create(
         email: String,
-        first_name: String,
+        email_norm: Option<String>,
         last_name: String,
+        last_name_norm: Option<String>,
+        first_name: String,
+        first_name_norm: Option<String>,
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
         store_cache: Arc<NonEmptyPinboard<Snapshot>>,
@@ -82,20 +138,206 @@ impl User {
                 .chain(random.into_iter())
                 .collect::<Vec<_>>(),
         );
-        let identification = IdentificationMethod::Email(email);
+        let identification = IdentificationMethod::Email(Email {
+            normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
+            address: email,
+        });
         let key = format!("/acc/{id}");
         if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
             return None;
         }
+        let first_name_norm =
+            first_name_norm.unwrap_or_else(|| normalize_first_name(first_name.as_str()));
+        let last_name_norm =
+            last_name_norm.unwrap_or_else(|| normalize_last_name(last_name.as_str()));
         let user = Self {
             id,
             identification,
-            first_name,
             last_name,
+            last_name_norm,
+            first_name,
+            first_name_norm,
             date_of_birth,
             admin,
         };
         Snapshot::set(key.as_str(), &user).await?;
         Some(user)
     }
+}
+
+#[allow(clippy::inconsistent_digit_grouping)]
+pub(crate) async fn handle_user(
+    request: Request<Incoming>,
+    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+    let path = &request.uri().path()[9..];
+    if path == "/admin/reg/code" {
+        if let SessionState::Valid { user, .. } =
+            SessionState::from_headers(request.headers(), &store_cache).await
+        {
+            if user.admin {
+                if let Some(secret) = *VALIDATION_TOTP_SECRET {
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header(CONTENT_TYPE, TEXT)
+                        .body(Either::Left(Full::from(secret)))
+                        .unwrap();
+                }
+            }
+        }
+    } else if path == "/" || path.is_empty() {
+        if request.method() == Method::PUT {
+            if let Some(boundary) = request
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|it| it.to_str().ok())
+                .and_then(|it| parse_boundary(it).ok())
+            {
+                let mut multipart = Multipart::with_constraints(
+                    request.into_body().into_data_stream(),
+                    boundary,
+                    Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+                );
+                let mut email = None;
+                let mut last_name = None;
+                let mut first_name = None;
+                let mut dob = None;
+                let mut otp = None;
+                while let Ok(Some(field)) = multipart.next_field().await {
+                    match field.name() {
+                        Some("email") => {
+                            if let Ok(it) = field.text().await {
+                                email = Some(it);
+                            }
+                        }
+                        Some("last_name") => {
+                            if let Ok(it) = field.text().await {
+                                last_name = Some(it);
+                            }
+                        }
+                        Some("first_name") => {
+                            if let Ok(it) = field.text().await {
+                                first_name = Some(it);
+                            }
+                        }
+                        Some("dob") => {
+                            if let Ok(it) = field.text().await {
+                                dob = it.parse::<u32>().ok()
+                            }
+                        }
+                        Some("otp") => {
+                            if let Ok(it) = field.text().await {
+                                otp = Some(it);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let dob = dob.filter(|&it| {
+                    let max_dob = ((SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        / SECS_PER_YEAR
+                        + 1969)
+                        * 1_00_00) as u32;
+                    it < max_dob && it > 1900_00_00_u32
+                });
+                if email.is_some() && last_name.is_some() && first_name.is_some() && dob.is_some() {
+                    let email = email.unwrap();
+                    let email_norm = normalize_email(&email);
+                    let last_name = last_name.unwrap();
+                    let last_name_norm = normalize_last_name(&last_name);
+                    let first_name = first_name.unwrap();
+                    let first_name_norm = normalize_first_name(&first_name);
+                    let dob = dob.unwrap();
+                    let skip_moderation = if let Some(otp) = otp {
+                        if let Some(key) = *VALIDATION_TOTP_SECRET {
+                            let generator = TotpGenerator::new().build();
+                            if generator
+                                .get_code_window(key.as_bytes(), -1..=1)
+                                .map(|it| it.contains(&otp))
+                                .unwrap_or(false)
+                            {
+                                true
+                            } else {
+                                return Response::builder()
+                                    .status(StatusCode::FORBIDDEN)
+                                    .body(Either::Right(Empty::new()))
+                                    .unwrap();
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                    if skip_moderation {
+                        let existing =
+                            store_cache
+                                .get_ref()
+                                .list::<User>("/acc/")
+                                .any(|(_, ref user)| {
+                                    if let IdentificationMethod::Email(ref email) =
+                                        user.identification
+                                    {
+                                        email_norm == email.normalized_address
+                                            && user.date_of_birth == dob
+                                            && user.last_name_norm == last_name_norm
+                                            && user.first_name_norm == first_name_norm
+                                    } else {
+                                        false
+                                    }
+                                });
+                        if !existing {
+                            let email_trim = email.trim();
+                            let last_name_trim = last_name.trim();
+                            let first_name_trim = first_name.trim();
+                            let _ = User::create(
+                                if email.len() == email_trim.len() {
+                                    email
+                                } else {
+                                    email_trim.to_string()
+                                },
+                                Some(email_norm),
+                                if last_name.len() == last_name_trim.len() {
+                                    last_name
+                                } else {
+                                    last_name_trim.to_string()
+                                },
+                                Some(last_name_norm),
+                                if first_name.len() == first_name_trim.len() {
+                                    first_name
+                                } else {
+                                    first_name_trim.to_string()
+                                },
+                                Some(first_name_norm),
+                                dob,
+                                false,
+                                store_cache,
+                            )
+                            .await;
+                            // TODO send email
+                        }
+                    }
+                    return Response::builder()
+                        .status(StatusCode::ACCEPTED)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap();
+                }
+            }
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        } else if let SessionState::Valid { user, .. } =
+            SessionState::from_headers(request.headers(), &store_cache).await
+        {
+            // TODO
+        }
+    }
+    Response::builder()
+        .status(StatusCode::FORBIDDEN)
+        .body(Either::Right(Empty::new()))
+        .unwrap()
 }

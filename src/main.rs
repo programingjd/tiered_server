@@ -4,10 +4,10 @@ mod email;
 mod env;
 mod firewalls;
 mod headers;
+mod norm;
 mod otp;
 mod prefix;
 mod push_webhook;
-mod reg;
 mod session;
 mod store;
 mod user;
@@ -62,7 +62,7 @@ static DOMAIN_APEX: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(DomainApex).expect("missing domain name"));
 
 //noinspection SpellCheckingInspection
-pub(crate) static DOMAIN_TITLE: LazyLock<&'static str> =
+pub static DOMAIN_TITLE: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(DomainTitle).expect("missing domain title"));
 
 #[derive(Debug)]

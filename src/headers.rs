@@ -6,20 +6,20 @@ use zip_static_handler::http::headers::{
     SERVICE_WORKER_ALLOWED, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION,
 };
 
-pub(crate) const HTML: &[u8] = b"text/html";
-pub(crate) const GET: HeaderValue = HeaderValue::from_static("GET");
-pub(crate) const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
-pub(crate) const POST: HeaderValue = HeaderValue::from_static("POST");
+pub const HTML: &[u8] = b"text/html";
+pub const GET: HeaderValue = HeaderValue::from_static("GET");
+pub const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
+pub const POST: HeaderValue = HeaderValue::from_static("POST");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
     HeaderName::from_static("x-hub-signature-256-hash");
-pub(crate) const X_ROBOTS_TAG: &[u8] = b"x-robots-tag";
-pub(crate) const NOINDEX: &[u8] = b"noindex";
-pub(crate) const CLOUDFLARE_CDN_CACHE_CONTROL: &[u8] = b"cloudflare-cdn-cache-control";
-pub(crate) const CACHE_CONTROL_REVALIDATE: &[u8] = b"public,max-age=0,stale-if-error=3600";
-pub(crate) const CACHE_CONTROL_DEFAULT: &[u8] =
+pub const X_ROBOTS_TAG: &[u8] = b"x-robots-tag";
+pub const NOINDEX: &[u8] = b"noindex";
+pub const CLOUDFLARE_CDN_CACHE_CONTROL: &[u8] = b"cloudflare-cdn-cache-control";
+pub const CACHE_CONTROL_REVALIDATE: &[u8] = b"public,max-age=0,stale-if-error=3600";
+pub const CACHE_CONTROL_DEFAULT: &[u8] =
     b"public,max-age=72000,s-maxage=86400,stale-while-revalidate=28800,stale-if-error=3600";
-pub(crate) const CACHE_CONTROL_IMMUTABLE: &[u8] =
+pub const CACHE_CONTROL_IMMUTABLE: &[u8] =
     b"public,max-age=86400,s-maxage=86400,immutable,stale-while-revalidate=864000,stale-if-error=3600";
 
 static DEFAULT_HEADERS: LazyLock<Vec<Line>> = LazyLock::new(|| {

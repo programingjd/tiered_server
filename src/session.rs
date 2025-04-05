@@ -27,7 +27,7 @@ pub(crate) const DELETE_SID_COOKIES: HeaderValue = HeaderValue::from_static(
     "sid=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
 );
 
-pub(crate) enum SessionState<'a> {
+pub enum SessionState<'a> {
     Missing,
     Expired {
         #[allow(dead_code)]
@@ -40,13 +40,13 @@ pub(crate) enum SessionState<'a> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct Session {
-    pub(crate) user: User,
-    pub(crate) timestamp: u32,
+pub struct Session {
+    pub user: User,
+    pub timestamp: u32,
 }
 
 impl User {
-    pub(crate) async fn create_session(&self) -> Option<()> {
+    pub async fn create_session(&self) -> Option<()> {
         let user = self.clone();
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -69,7 +69,7 @@ impl User {
 }
 
 impl<'a> SessionState<'a> {
-    pub(crate) async fn from_headers(
+    pub async fn from_headers(
         headers: &'a HeaderMap<HeaderValue>,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     ) -> SessionState<'a> {

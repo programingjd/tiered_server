@@ -273,10 +273,6 @@ Cloudflare Turnstile is supported if the variable `TURNSTILE_SECRET_KEY` is set.
 
 The endpoints are under the api prefix.
 
-- `GET` `{api}/otp/{token}`<br>
-  One-time login link<br>
-  Validates the link, creates a new session for the user and redirects to the user landing page.
-
 - `HEAD` `{api}/auth/credentials`<br>
   Login session existence check<br>
   Returns a `204 No Content` if the user is known (the session might be expired though),
@@ -296,11 +292,18 @@ The endpoints are under the api prefix.
 - `POST` `{api}/auth/validate_credential`<br>
   Checks the passkey and creates a user session if valid.
 
-- `POST` `{api}/auth/opt`<br>
-  Requests a new email with a one-time login link.
-
 - `GET` `{api}/auth/forget_user`<br>
   Deletes the session and the associated cookies.
 
 - `GET` `{api}/auth/disconnect_user`<br>
   Invalidates the session and update the `st` cookie.
+
+- `GET` `{api}/otp/{token}`<br>
+  One-time login link<br>
+  Validates the link, creates a new session for the user and redirects to the user landing page.
+
+- `POST` `{api}/opt`<br>
+  Requests a new email with a one-time login link.
+
+- `PUT` `{api}/user`<br>
+  Submits a new account request.
