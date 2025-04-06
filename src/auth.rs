@@ -206,11 +206,11 @@ impl PassKey {
             }
             PassKey::RS256 { ref n, .. } => {
                 if let Ok(n) = URL_SAFE_NO_PAD.decode_to_vec(n) {
-                    let mut public_key_sec1 = [0u8; 65];
+                    let mut public_key_der = [0u8; 65];
                     // TODO
                     let mut key = signature::UnparsedPublicKey::new(
                         &RSA_PKCS1_2048_8192_SHA256,
-                        public_key_sec1,
+                        public_key_der,
                     );
 
                     let mut payload =
