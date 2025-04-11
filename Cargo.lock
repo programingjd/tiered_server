@@ -2207,6 +2207,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "totp_rfc6238",
+ "tracing",
  "tracing-subscriber",
  "unicode-general-category",
  "unicode-normalization",

@@ -29,8 +29,8 @@ static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Email {
-    pub address: String,
-    pub normalized_address: String,
+    pub(crate) address: String,
+    pub(crate) normalized_address: String,
 }
 
 impl From<String> for Email {
@@ -86,27 +86,50 @@ pub(crate) async fn ensure_admin_users_exist(
     handler: Arc<Handler>,
 ) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
+    let users = store_cache
+        .get_ref()
+        .list::<User>("acc/")
+        .map(|(_, user)| user)
+        .collect::<Vec<_>>();
     for user in value.split(";") {
         let mut iter = user.split(",");
         let email = iter.next()?;
-        let first_name = iter.next()?;
         let last_name = iter.next()?;
+        let first_name = iter.next()?;
         let date_of_birth = iter.next()?.parse::<u32>().ok()?;
-        if let Some(user) = User::create(
-            email.trim().to_string(),
-            None,
-            last_name.trim().to_string(),
-            None,
-            first_name.trim().to_string(),
-            None,
-            date_of_birth,
-            true,
-            false,
-            store_cache.clone(),
-        )
-        .await
-        {
-            Otp::send(&user, store_cache.clone(), handler.clone()).await?;
+        let email_norm = normalize_email(email);
+        let last_name_norm = normalize_last_name(last_name);
+        let first_name_norm = normalize_first_name(last_name);
+        if !users.iter().any(|user| {
+            if let IdentificationMethod::Email(Email {
+                ref normalized_address,
+                ..
+            }) = user.identification
+            {
+                normalized_address == &email_norm
+                    && user.last_name_norm == last_name_norm
+                    && user.first_name_norm == first_name_norm
+                    && user.date_of_birth == date_of_birth
+            } else {
+                false
+            }
+        }) {
+            if let Some(user) = User::create(
+                email.trim().to_string(),
+                None,
+                last_name.trim().to_string(),
+                None,
+                first_name.trim().to_string(),
+                None,
+                date_of_birth,
+                true,
+                false,
+                store_cache.clone(),
+            )
+            .await
+            {
+                Otp::send(&user, store_cache.clone(), handler.clone()).await?;
+            }
         }
     }
     Some(())
@@ -144,7 +167,7 @@ impl User {
             normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
             address: email,
         });
-        let key = format!("/{}/{id}", if needs_validation { "reg" } else { "acc" });
+        let key = format!("{}/{id}", if needs_validation { "reg" } else { "acc" });
         if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
             return None;
         }
@@ -277,7 +300,7 @@ pub(crate) async fn handle_user(
                     let existing =
                         store_cache
                             .get_ref()
-                            .list::<User>("/acc/")
+                            .list::<User>("acc/")
                             .any(|(_, ref user)| {
                                 if let IdentificationMethod::Email(ref email) = user.identification
                                 {

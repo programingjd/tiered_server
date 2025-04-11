@@ -23,6 +23,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tokio::spawn;
+use tracing::warn;
 use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
@@ -48,7 +49,7 @@ pub struct Otp {
 
 #[derive(Serialize)]
 struct NewCredentialsContext<'a> {
-    user_id: &'a str,
+    user: &'a User,
     link_url: &'a str,
 }
 
@@ -65,30 +66,70 @@ impl Otp {
         let otp = Self::create(user, store_cache).await?;
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
+        #[cfg(debug_assertions)]
+        let hostname = "www.localhost";
+        #[cfg(not(debug_assertions))]
+        let hostname = *crate::server::DOMAIN_APEX;
         let link_url = format!(
-            "{}otp/{id}.{signature}",
+            "https://{hostname}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
         let subject = (*EMAIL_ONE_TIME_LOGIN_TITLE)?;
-        let template = (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?;
-        let content = handler
+        let template_name = (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?;
+        let content = match handler
             .entry(&format!(
-                "{}{template}",
+                "{}{template_name}",
                 API_PATH_PREFIX.with_trailing_slash
-            ))?
-            .content
-            .clone()?;
-        let jinja = from_utf8(content.as_ref()).ok()?;
-        let mut environment = Environment::new();
-        environment.add_template("new_credentials", jinja).ok()?;
-        let html_body = environment
-            .get_template("new_credentials")
-            .ok()?
-            .render(NewCredentialsContext {
-                user_id: user.id.as_str(),
-                link_url: link_url.as_str(),
-            })
-            .ok()?;
+            ))
+            .and_then(|it| it.content.clone())
+        {
+            Some(content) => content,
+            None => {
+                warn!(
+                    "missing email template: {}{template_name}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
+        let html_body = match from_utf8(content.as_ref()) {
+            Ok(jinja) => {
+                let mut environment = Environment::new();
+                match environment.add_template("new_credentials", jinja) {
+                    Ok(()) => environment.get_template("new_credentials"),
+                    Err(err) => {
+                        warn!(
+                            "invalid template: {}{template_name}:\n{err:?}",
+                            API_PATH_PREFIX.with_trailing_slash
+                        );
+                        return None;
+                    }
+                }
+                .and_then(|template| {
+                    template.render(NewCredentialsContext {
+                        user,
+                        link_url: link_url.as_str(),
+                    })
+                })
+            }
+            Err(_) => {
+                warn!(
+                    "invalid template: {}{template_name}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
+        let html_body = match html_body {
+            Ok(html_body) => html_body,
+            Err(err) => {
+                warn!(
+                    "invalid template: {}{template_name}:\n{err:?}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
         Email::send(email, subject, html_body.as_str()).await
     }
 
@@ -107,7 +148,7 @@ impl Otp {
                 .chain(random.into_iter())
                 .collect::<Vec<_>>(),
         );
-        let key = format!("/otp/{id}");
+        let key = format!("otp/{id}");
         let otp = Self {
             id,
             user_id: user.id.clone(),
@@ -128,7 +169,7 @@ impl Otp {
             .as_secs() as u32;
         let paths: Vec<String> = store_cache
             .get_ref()
-            .list::<Otp>("/opt/")
+            .list::<Otp>("opt/")
             .filter_map(|(k, otp)| {
                 let elapsed = timestamp - otp.timestamp;
                 if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
@@ -205,7 +246,7 @@ pub(crate) async fn handle_otp(
                 let email_norm = email.as_ref().map(|it| normalize_email(it));
                 let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
                 let first_name_norm = first_name.as_ref().map(|it| normalize_last_name(it));
-                let single = single(store_cache.get_ref().list::<User>("/acc/").filter_map(
+                let single = single(store_cache.get_ref().list::<User>("acc/").filter_map(
                     |(_, user)| {
                         if let Some(ref email_norm) = email_norm {
                             if let IdentificationMethod::Email(ref e) = user.identification {
@@ -269,7 +310,7 @@ pub(crate) async fn handle_otp(
                             let mut response = Response::builder();
                             let headers = response.headers_mut().unwrap();
                             session.cookies().into_iter().for_each(|cookie| {
-                                headers.insert(SET_COOKIE, cookie);
+                                headers.append(SET_COOKIE, cookie);
                             });
                             headers.insert(
                                 LOCATION,
@@ -292,7 +333,7 @@ pub(crate) async fn handle_otp(
 }
 
 async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
-    let key = format!("/otp/{token}");
+    let key = format!("otp/{token}");
     let otp = snapshot.get_ref().get::<Otp>(key.as_str())?;
     let _ = Snapshot::delete([key.as_str()].iter()).await;
     let timestamp = SystemTime::now()
@@ -303,7 +344,7 @@ async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) ->
     if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
         None
     } else {
-        let key = format!("/acc/{}", otp.user_id);
+        let key = format!("acc/{}", otp.user_id);
         let user = snapshot.get_ref().get(key.as_str())?;
         Some(user)
     }

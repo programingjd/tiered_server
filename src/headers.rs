@@ -16,6 +16,7 @@ pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
 pub const X_ROBOTS_TAG: &[u8] = b"x-robots-tag";
 pub const NOINDEX: &[u8] = b"noindex";
 pub const CLOUDFLARE_CDN_CACHE_CONTROL: &[u8] = b"cloudflare-cdn-cache-control";
+pub const CACHE_CONTROL_NOCACHE: &[u8] = b"no-cache";
 pub const CACHE_CONTROL_REVALIDATE: &[u8] = b"public,max-age=0,stale-if-error=3600";
 pub const CACHE_CONTROL_DEFAULT: &[u8] =
     b"public,max-age=72000,s-maxage=86400,stale-while-revalidate=28800,stale-if-error=3600";

@@ -85,7 +85,7 @@ impl User {
             user_id,
             timestamp,
         };
-        let key = format!("/sid/{}", session.id);
+        let key = format!("sid/{}", session.id);
         Snapshot::set(key.as_str(), &session).await?;
         Some(session)
     }
@@ -116,13 +116,10 @@ impl SessionState {
             let session_id = cookie_value.unwrap();
             if let Some(session) = store_cache
                 .get_ref()
-                .get::<Session>(&format!("/sid/{session_id}"))
+                .get::<Session>(&format!("sid/{session_id}"))
             {
                 let user_id = &session.user_id;
-                if let Some(user) = store_cache
-                    .get_ref()
-                    .get::<User>(&format!("/acc/{user_id}"))
-                {
+                if let Some(user) = store_cache.get_ref().get::<User>(&format!("acc/{user_id}")) {
                     let now = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()

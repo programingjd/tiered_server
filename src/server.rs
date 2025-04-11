@@ -97,7 +97,7 @@ pub async fn serve() {
         .with_line_number(true)
         .without_time()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
-            "pb-server=debug,zip_static_handler=info,hyper=info",
+            "tiered_server=debug,zip_static_handler=info,hyper=info",
         ))
         .init();
 
@@ -259,7 +259,7 @@ pub async fn serve() {
                                                                             login_path,
                                                                         ),
                                                                     );
-                                                                    headers.insert(
+                                                                    headers.append(
                                                                         SET_COOKIE,
                                                                         SID_EXPIRED,
                                                                     );

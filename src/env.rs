@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 use std::sync::LazyLock;
+use tracing::info;
 
 static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut map = BTreeMap::<&'static str, &'static str>::new();
@@ -16,7 +17,7 @@ static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
                 let mut parts = line.split('=');
                 if let Some(key) = parts.next() {
                     if let Some(value) = parts.next() {
-                        println!("{key} loaded from environment file");
+                        info!("{key} loaded from environment file");
                         map.insert(
                             key.trim().to_string().leak(),
                             value.trim().to_string().leak(),
@@ -33,7 +34,7 @@ static ENV: LazyLock<HashMap<ConfigurationKey, &'static str>> = LazyLock::new(||
     ConfigurationKey::all().for_each(|it| {
         if let Some(ref value) = std::env::var_os(it.name()) {
             if let Some(v) = value.to_str() {
-                println!("{} loaded from environment variable", it.name());
+                info!("{} loaded from environment variable", it.name());
                 map.insert(it, v.to_string().leak());
             }
         }

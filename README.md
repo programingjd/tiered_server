@@ -112,42 +112,42 @@ The path is not encrypted, but the content is.
 
 <br>
 
-session ids are under `/sid`:
+session ids are under `sid`:
 
 ```
-/sid/{session_id} -> (user_id,timestamp)
+sid/{session_id} -> (user_id,timestamp)
 ```
 
-one-time login tokens are under `/otp`:
+one-time login tokens are under `otp`:
 
 ```
-/otp/{otp_token} -> (user_id,timestamp)
+otp/{otp_token} -> (user_id,timestamp)
 ```
 
-user data is under `/acc`:
+user data is under `acc`:
 
 ```
-/acc/{user_id} -> {user}
+acc/{user_id} -> {user}
 ```
 
-passkeys and under `/pk`:
+passkeys and under `pk`:
 
 ```
-/pk/{user_id}/{passkey_id} -> {passkey}
+pk/{user_id}/{passkey_id} -> {passkey}
 ```
 
-registrations pending approval are under `/reg`:
+registrations pending approval are under `reg`:
 
 ```
-/reg/{user_id} -> {user}
+reg/{user_id} -> {user}
 ```
 
 <!--
-security related counters are under `/sec`:
+security related counters are under `sec`:
 
 ```
-/sec/{user_id}/otp -> {rate limiting counters}
-/sec/{user_id}/auth -> {rate limiting counters}
+sec/{user_id}/otp -> {rate limiting counters}
+sec/{user_id}/auth -> {rate limiting counters}
 ```
 -->
 <br>

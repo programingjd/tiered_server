@@ -390,7 +390,7 @@ pub(crate) async fn handle_auth(
             }
             return if store_cache
                 .get_ref()
-                .list::<PassKey>(&format!("/pk/{}/", user.id))
+                .list::<PassKey>(&format!("acc/{}/", user.id))
                 .next()
                 .is_some()
             {
@@ -418,7 +418,7 @@ pub(crate) async fn handle_auth(
             }
             let keys = store_cache
                 .get_ref()
-                .list::<PassKey>(&format!("/pk/{}/", user.id))
+                .list::<PassKey>(&format!("pk/{}/", user.id))
                 .map(|(_, key)| Credentials::from_id(key.into_id()))
                 .collect::<Vec<_>>();
             let challenge = new_challenge();
@@ -518,7 +518,7 @@ pub(crate) async fn handle_auth(
                 }
                 if i.is_some() && challenge_verified {
                     if let Some(passkey) = PassKey::new(i.unwrap(), a, k.as_slice()) {
-                        if Snapshot::set(&format!("/pk/{}/{}", user.id, passkey.id()), &passkey)
+                        if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id()), &passkey)
                             .await
                             .is_some()
                         {
@@ -620,7 +620,7 @@ pub(crate) async fn handle_auth(
                 let user_id = u.unwrap();
                 if store_cache
                     .get_ref()
-                    .get::<PassKey>(&format!("/pk/{user_id}/{passkey_id}"))
+                    .get::<PassKey>(&format!("pk/{user_id}/{passkey_id}"))
                     .filter(|passkey| {
                         passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice())
                     })
@@ -630,7 +630,7 @@ pub(crate) async fn handle_auth(
                         let mut response = Response::builder().status(StatusCode::OK);
                         let headers = response.headers_mut().unwrap();
                         session.cookies().into_iter().for_each(|cookie| {
-                            headers.insert(SET_COOKIE, cookie);
+                            headers.append(SET_COOKIE, cookie);
                         });
                         return response.body(Either::Right(Empty::new())).unwrap();
                     };
@@ -649,7 +649,7 @@ pub(crate) async fn handle_auth(
         }
         if user.is_some() {
             if let Some(session) = session {
-                Snapshot::delete([format!("/sid/{}", session.id)].iter()).await;
+                Snapshot::delete([format!("sid/{}", session.id)].iter()).await;
             }
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
@@ -670,11 +670,11 @@ pub(crate) async fn handle_auth(
         if user.is_some() {
             if let Some(mut session) = session {
                 session.timestamp = 0;
-                Snapshot::set(&format!("/sid/{}", session.id), &session).await;
+                Snapshot::set(&format!("sid/{}", session.id), &session).await;
             }
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
-            headers.insert(SET_COOKIE, SID_EXPIRED);
+            headers.append(SET_COOKIE, SID_EXPIRED);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
     }

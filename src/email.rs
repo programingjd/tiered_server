@@ -7,6 +7,7 @@ use reqwest::Client;
 use reqwest::multipart::Form;
 use serde::Serialize;
 use std::sync::LazyLock;
+use tracing::warn;
 
 #[derive(Serialize)]
 pub(crate) struct Email<'a> {
@@ -86,7 +87,7 @@ impl<'a> Email<'a> {
             return Some(());
         }
         if let Ok(text) = resp.text().await {
-            println!("{text}");
+            warn!("{text}");
         }
         None
     }

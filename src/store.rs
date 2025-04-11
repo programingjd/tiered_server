@@ -22,6 +22,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
 use tokio::time::{MissedTickBehavior, interval};
+use tracing::{debug, warn};
 
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
@@ -78,6 +79,7 @@ pub(crate) async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
         {
             existing.data.clone()
         } else {
+            debug!("new cache entry: {}", &metadata.location);
             let result = store.get(&metadata.location).await.ok()?;
             download(result.payload).await?
         };
@@ -117,7 +119,10 @@ impl Snapshot {
         );
         match store.put(&path, payload).await {
             Ok(_) => Some(()),
-            _ => None,
+            Err(err) => {
+                warn!("{err:?}");
+                None
+            }
         }
     }
     pub async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {

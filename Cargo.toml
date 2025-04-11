@@ -134,6 +134,11 @@ features = []
 version = "0.3"
 features = ["env-filter"]
 
+[dependencies.tracing]
+version = "0.1"
+default-features = false
+features = ["std"]
+
 [dev-dependencies.rsa-der]
 version = "0.3"
 default-features = false
