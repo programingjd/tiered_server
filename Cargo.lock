@@ -1400,40 +1400,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pb-server"
-version = "0.1.0"
-dependencies = [
- "base64-simd",
- "basic-cookies",
- "coset",
- "firewall",
- "futures-lite",
- "http-body-util",
- "hyper",
- "hyper-util",
- "minijinja",
- "multer",
- "object_store",
- "pinboard",
- "punycode",
- "rcgen",
- "reqwest",
- "ring",
- "rsa-der",
- "rustls",
- "serde",
- "serde_json",
- "simple_asn1",
- "tokio",
- "tokio-rustls",
- "totp_rfc6238",
- "tracing-subscriber",
- "unicode-general-category",
- "unicode-normalization",
- "zip_static_handler",
-]
-
-[[package]]
 name = "pem"
 version = "3.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2211,6 +2177,40 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
+]
+
+[[package]]
+name = "tiered_server"
+version = "0.1.0"
+dependencies = [
+ "base64-simd",
+ "basic-cookies",
+ "coset",
+ "firewall",
+ "futures-lite",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "minijinja",
+ "multer",
+ "object_store",
+ "pinboard",
+ "punycode",
+ "rcgen",
+ "reqwest",
+ "ring",
+ "rsa-der",
+ "rustls",
+ "serde",
+ "serde_json",
+ "simple_asn1",
+ "tokio",
+ "tokio-rustls",
+ "totp_rfc6238",
+ "tracing-subscriber",
+ "unicode-general-category",
+ "unicode-normalization",
+ "zip_static_handler",
 ]
 
 [[package]]

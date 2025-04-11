@@ -2,10 +2,10 @@ use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
 use crate::rsa::rsa_spki_der;
+use crate::server::{DOMAIN_APEX, DOMAIN_TITLE};
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
 use crate::store::Snapshot;
 use crate::user::User;
-use crate::{DOMAIN_APEX, DOMAIN_TITLE};
 use base64_simd::URL_SAFE_NO_PAD;
 use coset::iana::{
     Algorithm, Ec2KeyParameter, EllipticCurve, EnumI64, KeyType, OkpKeyParameter, RsaKeyParameter,
@@ -42,7 +42,7 @@ struct Credentials {
 }
 
 impl Credentials {
-    pub fn from_id(id: String) -> Self {
+    fn from_id(id: String) -> Self {
         Self {
             id,
             typ: "public-key",
@@ -58,19 +58,19 @@ struct PubKeyCredParams {
 }
 
 impl PubKeyCredParams {
-    pub fn ed25519() -> Self {
+    fn ed25519() -> Self {
         Self {
             alg: -8,
             typ: "public-key",
         }
     }
-    pub fn es256() -> Self {
+    fn es256() -> Self {
         Self {
             alg: -7,
             typ: "public-key",
         }
     }
-    pub fn rs256() -> Self {
+    fn rs256() -> Self {
         Self {
             alg: -257,
             typ: "public-key",

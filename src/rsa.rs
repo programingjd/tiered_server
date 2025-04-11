@@ -1,6 +1,6 @@
 use simple_asn1::{ASN1Block, BigInt, oid, to_der};
 
-pub fn rsa_spki_der(n: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn rsa_spki_der(n: &[u8]) -> Option<Vec<u8>> {
     // let mut sequence = Vec::new();
     let oid = oid!(1, 2, 840, 113549, 1, 1, 1);
     let algorithm_identifier = ASN1Block::Sequence(

@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::sync::LazyLock;
 
 #[derive(Serialize)]
-pub struct Email<'a> {
+pub(crate) struct Email<'a> {
     from: Option<&'static str>,
     to: &'a str,
     subject: &'static str,
@@ -36,7 +36,7 @@ static EMAIL_API_REQUEST_CONTENT_TYPE: LazyLock<&'static str> =
     LazyLock::new(|| secret_value(EmailApiRequestContentType).unwrap_or("multipart/form-data"));
 
 impl<'a> Email<'a> {
-    pub async fn send(
+    pub(crate) async fn send(
         email_address: &'a str,
         subject: &'static str,
         html_body: &'a str,

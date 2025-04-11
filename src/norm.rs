@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use unicode_general_category::{GeneralCategory, get_general_category};
 use unicode_normalization::UnicodeNormalization;
 
-pub fn normalize_email(email: &str) -> String {
+pub(crate) fn normalize_email(email: &str) -> String {
     let trim = email.trim();
     let mut iter = trim.split('@');
     if let Some(local) = iter.next() {
@@ -39,15 +39,15 @@ pub fn normalize_email(email: &str) -> String {
     trim.to_string()
 }
 
-pub fn normalize_phone_number(_number: &str) -> String {
+pub(crate) fn normalize_phone_number(_number: &str) -> String {
     todo!()
 }
 
-pub fn normalize_first_name(first_name: &str) -> String {
+pub(crate) fn normalize_first_name(first_name: &str) -> String {
     normalize_name(first_name)
 }
 
-pub fn normalize_last_name(last_name: &str) -> String {
+pub(crate) fn normalize_last_name(last_name: &str) -> String {
     normalize_name(last_name)
 }
 

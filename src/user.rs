@@ -28,7 +28,7 @@ static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(ValidationTotpSecret));
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Email {
+pub(crate) struct Email {
     pub address: String,
     pub normalized_address: String,
 }
@@ -43,7 +43,7 @@ impl From<String> for Email {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Sms {
+pub(crate) struct Sms {
     number: String,
     normalized_number: String,
 }
@@ -58,7 +58,7 @@ impl From<String> for Sms {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub enum IdentificationMethod {
+pub(crate) enum IdentificationMethod {
     Email(Email),
     Sms(Sms),
     NotSet,
@@ -67,7 +67,7 @@ pub enum IdentificationMethod {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
-    pub identification: IdentificationMethod,
+    pub(crate) identification: IdentificationMethod,
     pub last_name: String,
     pub last_name_norm: String,
     pub first_name: String,
