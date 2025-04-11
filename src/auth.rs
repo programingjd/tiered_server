@@ -1,7 +1,8 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
-use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, Session, SessionState};
+use crate::rsa::rsa_spki_der;
+use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
 use crate::store::Snapshot;
 use crate::user::User;
 use crate::{DOMAIN_APEX, DOMAIN_TITLE};
@@ -172,11 +173,11 @@ impl PassKey {
             n: URL_SAFE_NO_PAD.encode_to_string(bytes),
         }
     }
-    fn verify(self, signature: &[u8], authenticator_data: &[u8], client_data_hash: &[u8]) -> bool {
+    fn verify(&self, signature: &[u8], authenticator_data: &[u8], client_data_hash: &[u8]) -> bool {
         match self {
-            PassKey::ED25519 { x: ref x, .. } => {
+            PassKey::ED25519 { x, .. } => {
                 if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
-                    let mut public_key = signature::UnparsedPublicKey::new(&ED25519, x);
+                    let public_key = signature::UnparsedPublicKey::new(&ED25519, x);
                     let mut payload =
                         Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
                     payload.extend(authenticator_data.iter());
@@ -184,14 +185,14 @@ impl PassKey {
                     return public_key.verify(&payload, signature).is_ok();
                 };
             }
-            PassKey::ES256 { ref x, ref y, .. } => {
+            PassKey::ES256 { x, y, .. } => {
                 if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
                     if let Ok(y) = URL_SAFE_NO_PAD.decode_to_vec(y) {
                         let mut public_key_sec1 = [0u8; 65];
                         public_key_sec1[0] = 0x04;
                         public_key_sec1[1..33].copy_from_slice(&x);
                         public_key_sec1[33..].copy_from_slice(&y);
-                        let mut key = signature::UnparsedPublicKey::new(
+                        let key = signature::UnparsedPublicKey::new(
                             &ECDSA_P256_SHA256_ASN1,
                             public_key_sec1,
                         );
@@ -204,23 +205,21 @@ impl PassKey {
                     }
                 };
             }
-            PassKey::RS256 { ref n, .. } => {
+            PassKey::RS256 { n, .. } => {
                 if let Ok(n) = URL_SAFE_NO_PAD.decode_to_vec(n) {
-                    let mut public_key_der = [0u8; 65];
-                    // TODO
-                    let mut key = signature::UnparsedPublicKey::new(
-                        &RSA_PKCS1_2048_8192_SHA256,
-                        public_key_der,
-                    );
-
-                    let mut payload =
-                        Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
-                    payload.extend(authenticator_data.iter());
-                    payload.extend(client_data_hash.iter());
-                    return key.verify(&payload, signature).is_ok();
+                    if let Some(public_key_der) = rsa_spki_der(&n) {
+                        let public_key = signature::UnparsedPublicKey::new(
+                            &RSA_PKCS1_2048_8192_SHA256,
+                            public_key_der,
+                        );
+                        let mut payload =
+                            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                        payload.extend(authenticator_data.iter());
+                        payload.extend(client_data_hash.iter());
+                        return public_key.verify(&payload, signature).is_ok();
+                    }
                 };
             }
-            _ => {}
         }
         false
     }
@@ -341,8 +340,8 @@ pub(crate) async fn handle_auth(
     let path = &request.uri().path()[9..];
     let method = request.method();
     let session_state = SessionState::from_headers(request.headers(), &store_cache).await;
-    let (user, session_id) = match session_state {
-        SessionState::Valid { user, session_id } => (Some(user), Some(session_id)),
+    let (user, session) = match session_state {
+        SessionState::Valid { user, session } => (Some(user), Some(session)),
         SessionState::Expired { user } => (Some(user), None),
         _ => (None, None),
     };
@@ -617,21 +616,24 @@ pub(crate) async fn handle_auth(
                 && d.is_empty()
                 && digest(&SHA256, DOMAIN_APEX.as_bytes()).as_ref() == &d[..32]
             {
-                let i = i.unwrap();
-                let u = u.unwrap();
-                if let Some(passkey) = store_cache
+                let passkey_id = i.unwrap();
+                let user_id = u.unwrap();
+                if store_cache
                     .get_ref()
-                    .get::<PassKey>(&format!("/pk/{u}/{i}"))
+                    .get::<PassKey>(&format!("/pk/{user_id}/{passkey_id}"))
+                    .filter(|passkey| {
+                        passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice())
+                    })
+                    .is_some()
                 {
-                    if passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice()) {
+                    if let Some(session) = User::create_session(user_id).await {
                         let mut response = Response::builder().status(StatusCode::OK);
-                        // response.headers_mut().unwrap().insert(
-                        //     SET_COOKIE,
-                        //     HeaderValue::from_str("").unwrap(),
-                        // );
-                        todo!("create session id and set cookies");
+                        let headers = response.headers_mut().unwrap();
+                        session.cookies().into_iter().for_each(|cookie| {
+                            headers.insert(SET_COOKIE, cookie);
+                        });
                         return response.body(Either::Right(Empty::new())).unwrap();
-                    }
+                    };
                 }
             }
         }
@@ -646,8 +648,8 @@ pub(crate) async fn handle_auth(
                 .unwrap();
         }
         if user.is_some() {
-            if let Some(session_id) = session_id {
-                Snapshot::delete([format!("/sid/{session_id}")].iter()).await;
+            if let Some(session) = session {
+                Snapshot::delete([format!("/sid/{}", session.id)].iter()).await;
             }
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
@@ -665,13 +667,10 @@ pub(crate) async fn handle_auth(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         }
-        if let Some(user) = user {
-            if let Some(session_id) = session_id {
-                Snapshot::set(
-                    &format!("/sid/{session_id}"),
-                    &Session { user, timestamp: 0 },
-                )
-                .await;
+        if user.is_some() {
+            if let Some(mut session) = session {
+                session.timestamp = 0;
+                Snapshot::set(&format!("/sid/{}", session.id), &session).await;
             }
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();

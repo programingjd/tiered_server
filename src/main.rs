@@ -8,6 +8,7 @@ mod norm;
 mod otp;
 mod prefix;
 mod push_webhook;
+mod rsa;
 mod session;
 mod store;
 mod user;

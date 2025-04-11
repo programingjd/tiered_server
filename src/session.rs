@@ -24,10 +24,10 @@ pub(crate) const DELETE_ST_COOKIES: HeaderValue = HeaderValue::from_static(
     "st=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
 );
 pub(crate) const DELETE_SID_COOKIES: HeaderValue = HeaderValue::from_static(
-    "sid=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "sid=0; Secure; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
 );
 
-pub enum SessionState<'a> {
+pub enum SessionState {
     Missing,
     Expired {
         #[allow(dead_code)]
@@ -35,24 +35,41 @@ pub enum SessionState<'a> {
     },
     Valid {
         user: User,
-        session_id: &'a str,
+        session: Session,
     },
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Session {
-    pub user: User,
+    pub(crate) id: String,
+    pub user_id: String,
     pub timestamp: u32,
 }
 
+impl Session {
+    pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
+        [
+            HeaderValue::from_str(&format!(
+                "st={}; Secure; SameSite=Strict; Max-Age=34560000",
+                self.timestamp
+            ))
+            .unwrap(),
+            HeaderValue::from_str(&format!(
+                "sid={}; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
+                self.id
+            ))
+            .unwrap(),
+        ]
+    }
+}
+
 impl User {
-    pub async fn create_session(&self) -> Option<()> {
-        let user = self.clone();
+    pub async fn create_session(user_id: impl Into<String>) -> Option<Session> {
+        let user_id = user_id.into();
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let session = Session { user, timestamp };
         let mut random = [0u8; 36];
         random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
         SystemRandom::new().fill(&mut random[..32]).unwrap();
@@ -63,16 +80,22 @@ impl User {
                 .chain(random.into_iter())
                 .collect::<Vec<_>>(),
         );
-        let key = format!("/sid/{session_id}");
-        Snapshot::set(key.as_str(), &session).await
+        let session = Session {
+            id: session_id,
+            user_id,
+            timestamp,
+        };
+        let key = format!("/sid/{}", session.id);
+        Snapshot::set(key.as_str(), &session).await?;
+        Some(session)
     }
 }
 
-impl<'a> SessionState<'a> {
+impl SessionState {
     pub async fn from_headers(
-        headers: &'a HeaderMap<HeaderValue>,
+        headers: &HeaderMap<HeaderValue>,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-    ) -> SessionState<'a> {
+    ) -> SessionState {
         let cookie_value = headers.get_all(COOKIE).iter().find_map(|it| {
             it.to_str()
                 .ok()
@@ -95,16 +118,23 @@ impl<'a> SessionState<'a> {
                 .get_ref()
                 .get::<Session>(&format!("/sid/{session_id}"))
             {
-                let user = session.user;
-                let now = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as u32
-                    - 180;
-                if session.timestamp < now && now - session.timestamp < MAX_AGE {
-                    SessionState::Valid { user, session_id }
+                let user_id = &session.user_id;
+                if let Some(user) = store_cache
+                    .get_ref()
+                    .get::<User>(&format!("/acc/{user_id}"))
+                {
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as u32
+                        - 180;
+                    if session.timestamp < now && now - session.timestamp < MAX_AGE {
+                        SessionState::Valid { user, session }
+                    } else {
+                        SessionState::Expired { user }
+                    }
                 } else {
-                    SessionState::Expired { user }
+                    SessionState::Missing
                 }
             } else {
                 SessionState::Missing

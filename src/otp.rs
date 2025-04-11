@@ -11,7 +11,7 @@ use crate::user::{IdentificationMethod, User};
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue, LOCATION};
+use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue, LOCATION, SET_COOKIE};
 use hyper::{Method, Request, Response, StatusCode};
 use minijinja::Environment;
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
@@ -48,7 +48,7 @@ pub struct Otp {
 
 #[derive(Serialize)]
 struct NewCredentialsContext<'a> {
-    user: &'a User,
+    user_id: &'a str,
     link_url: &'a str,
 }
 
@@ -85,7 +85,7 @@ impl Otp {
             .get_template("new_credentials")
             .ok()?
             .render(NewCredentialsContext {
-                user,
+                user_id: user.id.as_str(),
                 link_url: link_url.as_str(),
             })
             .ok()?;
@@ -265,9 +265,12 @@ pub(crate) async fn handle_otp(
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
                     if let Some(user) = validate_otp(token, store_cache).await {
-                        if user.create_session().await.is_some() {
+                        if let Some(session) = User::create_session(&user.id).await {
                             let mut response = Response::builder();
                             let headers = response.headers_mut().unwrap();
+                            session.cookies().into_iter().for_each(|cookie| {
+                                headers.insert(SET_COOKIE, cookie);
+                            });
                             headers.insert(
                                 LOCATION,
                                 HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
