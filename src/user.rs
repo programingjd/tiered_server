@@ -93,11 +93,11 @@ pub(crate) async fn ensure_admin_users_exist(
         .map(|(_, user)| user)
         .collect::<Vec<_>>();
     debug!(
-        "users: {}",
+        "users:\n{}",
         users
             .iter()
             .map(|it| format!(
-                "({} {} {})",
+                "    {} {} {}",
                 match it.identification {
                     IdentificationMethod::Email(ref email) => email.address.as_str(),
                     _ => "?",
@@ -106,7 +106,7 @@ pub(crate) async fn ensure_admin_users_exist(
                 it.first_name.as_str()
             ))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join("\n")
     );
     for user in value.split(";") {
         let mut iter = user.split(",");
@@ -116,7 +116,7 @@ pub(crate) async fn ensure_admin_users_exist(
         let date_of_birth = iter.next()?.parse::<u32>().ok()?;
         let email_norm = normalize_email(email);
         let last_name_norm = normalize_last_name(last_name);
-        let first_name_norm = normalize_first_name(last_name);
+        let first_name_norm = normalize_first_name(first_name);
         if !users.iter().any(|user| {
             if let IdentificationMethod::Email(Email {
                 ref normalized_address,

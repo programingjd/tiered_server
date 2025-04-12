@@ -15,11 +15,11 @@ pub(crate) async fn handle_api(
     handler: Arc<Handler>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[4..];
-    if path.starts_with("/auth/") {
+    if path == "/auth" || path.starts_with("/auth/") {
         return handle_auth(request, store_cache).await;
-    } else if path.starts_with("/otp/") {
+    } else if path == "/otp" || path.starts_with("/otp/") {
         return handle_otp(request, store_cache, handler).await;
-    } else if path.starts_with("/user/") {
+    } else if path == "/user" || path.starts_with("/user/") {
         return handle_user(request, store_cache).await;
     }
     Response::new(Either::Right(Empty::new()))

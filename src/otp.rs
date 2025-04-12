@@ -4,7 +4,7 @@ use crate::env::ConfigurationKey::{
 };
 use crate::env::secret_value;
 use crate::headers::GET;
-use crate::norm::{normalize_email, normalize_last_name};
+use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::store::Snapshot;
 use crate::user::{IdentificationMethod, User};
@@ -254,7 +254,7 @@ pub(crate) async fn handle_otp(
                 }
                 let email_norm = email.as_ref().map(|it| normalize_email(it));
                 let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
-                let first_name_norm = first_name.as_ref().map(|it| normalize_last_name(it));
+                let first_name_norm = first_name.as_ref().map(|it| normalize_first_name(it));
                 let single = single(store_cache.get_ref().list::<User>("acc/").filter_map(
                     |(_, user)| {
                         if let Some(ref email_norm) = email_norm {

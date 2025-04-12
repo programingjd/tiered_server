@@ -13,7 +13,7 @@ use coset::iana::{
 use coset::{CborSerializable, CoseKey, Label, RegisteredLabel, RegisteredLabelWithPrivate};
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ALLOW, CONTENT_TYPE, SET_COOKIE};
+use hyper::header::{ALLOW, CONTENT_TYPE, LOCATION, SET_COOKIE};
 use hyper::http::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
@@ -692,9 +692,10 @@ pub(crate) async fn handle_auth(
                 session.timestamp = 0;
                 Snapshot::set(&format!("sid/{}", session.id), &session).await;
             }
-            debug!("200 /api/auth/disconnect_user");
-            let mut response = Response::builder().status(StatusCode::OK);
+            debug!("302 /api/auth/disconnect_user");
+            let mut response = Response::builder().status(StatusCode::FOUND);
             let headers = response.headers_mut().unwrap();
+            headers.insert(LOCATION, HeaderValue::from_static("/"));
             headers.append(SET_COOKIE, SID_EXPIRED);
             return response.body(Either::Right(Empty::new())).unwrap();
         }

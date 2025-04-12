@@ -248,7 +248,7 @@ pub async fn serve() {
                                                             // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
-                                                                    debug!("404 {path}");
+                                                                    debug!("302 {path}");
                                                                     let mut response =
                                                                         Response::builder().status(
                                                                             StatusCode::FOUND,
