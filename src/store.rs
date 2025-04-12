@@ -128,7 +128,12 @@ impl Snapshot {
     pub async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {
         let store = store()?;
         let mut iter = store.delete_stream(
-            stream::iter(paths.into_iter().map(|it| Ok(Path::from(it.as_ref())))).boxed(),
+            stream::iter(paths.into_iter().map(|it| {
+                let path = Path::from(it.as_ref());
+                debug!("del cache entry: {path}");
+                Ok(path)
+            }))
+            .boxed(),
         );
         while let Some(_metadata) = iter.next().await {}
         Some(())

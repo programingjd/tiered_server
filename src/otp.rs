@@ -23,7 +23,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tokio::spawn;
-use tracing::warn;
+use tracing::{debug, warn};
 use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
@@ -130,7 +130,16 @@ impl Otp {
                 return None;
             }
         };
-        Email::send(email, subject, html_body.as_str()).await
+        #[cfg(debug_assertions)]
+        let send = false;
+        #[cfg(not(debug_assertions))]
+        let send = true;
+        if send {
+            Email::send(email, subject, html_body.as_str()).await
+        } else {
+            println!("\x1b[34;49;4m{link_url}\x1b[0m");
+            Some(())
+        }
     }
 
     async fn create(user: &User, store_cache: Arc<NonEmptyPinboard<Snapshot>>) -> Option<Self> {
@@ -292,6 +301,7 @@ pub(crate) async fn handle_otp(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
+            debug!("405 /api/otp{path}");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -316,6 +326,7 @@ pub(crate) async fn handle_otp(
                                 LOCATION,
                                 HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
                             );
+                            debug!("307 /api/otp{path}");
                             return response
                                 .status(StatusCode::TEMPORARY_REDIRECT)
                                 .body(Either::Right(Empty::new()))
@@ -326,6 +337,7 @@ pub(crate) async fn handle_otp(
             }
         }
     }
+    debug!("404 /api/otp{path}");
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))

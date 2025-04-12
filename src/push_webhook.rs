@@ -7,14 +7,16 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::ALLOW;
 use hyper::{Method, Request, Response, StatusCode};
 use ring::hmac::{HMAC_SHA256, Key, verify};
+use tracing::debug;
 
 pub(crate) async fn handle_webhook(
     request: Request<Incoming>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
-    let mut response = Response::builder().status(StatusCode::METHOD_NOT_ALLOWED);
+    let mut response = Response::builder();
     let headers = response.headers_mut().unwrap();
     headers.insert(ALLOW, POST);
     if request.method() != Method::POST {
+        debug!("405 {}", request.uri().path());
         return response
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Either::Right(Empty::new()))
@@ -30,11 +32,13 @@ pub(crate) async fn handle_webhook(
             let key = Key::new(HMAC_SHA256, webhook_token.as_bytes());
             if let Ok(body) = request.collect().await.map(|it| it.to_bytes()) {
                 if verify(&key, body.as_ref(), hash.as_slice()).is_ok() {
+                    debug!("update webhook verified");
                     todo!("update static content")
                 }
             }
         }
     }
+    debug!("403 update webhook");
     response
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))

@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
+use tracing::{debug, info};
 use zip_static_handler::handler::Handler;
 
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
@@ -91,6 +92,22 @@ pub(crate) async fn ensure_admin_users_exist(
         .list::<User>("acc/")
         .map(|(_, user)| user)
         .collect::<Vec<_>>();
+    debug!(
+        "users: {}",
+        users
+            .iter()
+            .map(|it| format!(
+                "({} {} {})",
+                match it.identification {
+                    IdentificationMethod::Email(ref email) => email.address.as_str(),
+                    _ => "?",
+                },
+                it.last_name.as_str(),
+                it.first_name.as_str()
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     for user in value.split(";") {
         let mut iter = user.split(",");
         let email = iter.next()?;
@@ -114,6 +131,7 @@ pub(crate) async fn ensure_admin_users_exist(
                 false
             }
         }) {
+            info!("new admin account: {email} {last_name} {first_name}");
             if let Some(user) = User::create(
                 email.trim().to_string(),
                 None,
@@ -202,6 +220,7 @@ pub(crate) async fn handle_user(
         {
             if user.admin {
                 if let Some(secret) = *VALIDATION_TOTP_SECRET {
+                    debug!("200 /api/user/admin/reg/code");
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header(CONTENT_TYPE, TEXT)
@@ -210,6 +229,7 @@ pub(crate) async fn handle_user(
                 }
             }
         }
+        debug!("403 /api/user/admin/reg/code");
     } else if path == "/" || path.is_empty() {
         if request.method() == Method::PUT {
             if let Some(boundary) = request
@@ -286,6 +306,7 @@ pub(crate) async fn handle_user(
                             {
                                 false
                             } else {
+                                debug!("403 /api/user");
                                 return Response::builder()
                                     .status(StatusCode::FORBIDDEN)
                                     .body(Either::Right(Empty::new()))
@@ -345,12 +366,14 @@ pub(crate) async fn handle_user(
                             // TODO send email
                         }
                     }
+                    debug!("202 /api/user");
                     return Response::builder()
                         .status(StatusCode::ACCEPTED)
                         .body(Either::Right(Empty::new()))
                         .unwrap();
                 }
             }
+            debug!("400 /api/user");
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
@@ -361,6 +384,7 @@ pub(crate) async fn handle_user(
             // TODO update user field if post
             // TODO get user info if get
         }
+        debug!("403 /api/user");
     }
     Response::builder()
         .status(StatusCode::FORBIDDEN)

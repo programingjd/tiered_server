@@ -39,6 +39,7 @@ use std::sync::{Arc, LazyLock};
 use tokio::net::TcpListener;
 use tokio::spawn;
 use tokio_rustls::LazyConfigAcceptor;
+use tracing::debug;
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
 use zip_static_handler::http::headers::CONTENT_TYPE;
@@ -211,6 +212,7 @@ pub async fn serve() {
                                     let store_cache = store_cache.clone();
                                     async move {
                                         let path = request.uri().path();
+                                        debug!("{} {path}", request.method());
                                         // webhook call from the GitHub repository that notifies
                                         // that the static content should be updated
                                         if is_webhook {
@@ -246,6 +248,7 @@ pub async fn serve() {
                                                             // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
+                                                                    debug!("404 {path}");
                                                                     let mut response =
                                                                         Response::builder().status(
                                                                             StatusCode::FOUND,
@@ -265,8 +268,12 @@ pub async fn serve() {
                                                                     );
                                                                     response
                                                                 }
-                                                                _ => Response::builder()
-                                                                    .status(StatusCode::FORBIDDEN),
+                                                                _ => {
+                                                                    debug!("403 {path}");
+                                                                    Response::builder().status(
+                                                                        StatusCode::FORBIDDEN,
+                                                                    )
+                                                                }
                                                             };
                                                             return Ok::<_, Infallible>(
                                                                 response
@@ -280,9 +287,10 @@ pub async fn serve() {
                                                 }
                                             }
                                             // static content
-                                            Ok::<_, Infallible>(
-                                                handler.handle_hyper_request(request),
-                                            )
+                                            let path = path.to_string();
+                                            let response = handler.handle_hyper_request(request);
+                                            debug!("{} {path}", response.status().as_u16());
+                                            Ok::<_, Infallible>(response)
                                         }
                                     }
                                 }),
