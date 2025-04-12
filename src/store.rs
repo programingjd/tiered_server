@@ -22,7 +22,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
 use tokio::time::{MissedTickBehavior, interval};
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
@@ -45,13 +45,16 @@ pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
             .build()
             .unwrap()
             .block_on(async move {
-                let mut delay = interval(Duration::from_secs(1_000));
+                let mut delay = interval(Duration::from_millis(1_000_u64));
                 delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 loop {
                     delay.tick().await;
                     let current = store_cache.get_ref();
                     if let Some(snapshot) = snapshot(Some(&current)).await {
                         store_cache.set(snapshot);
+                        trace!("snapshot updated");
+                    } else {
+                        warn!("update snapshot failed");
                     }
                 }
             });
@@ -135,7 +138,11 @@ impl Snapshot {
             }))
             .boxed(),
         );
-        while let Some(_metadata) = iter.next().await {}
+        while let Some(result) = iter.next().await {
+            if let Err(err) = result {
+                warn!("{err:?}");
+            }
+        }
         Some(())
     }
 }

@@ -50,13 +50,13 @@ impl Session {
     pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
         [
             HeaderValue::from_str(&format!(
-                "st={}; Secure; SameSite=Strict; Max-Age=34560000",
-                self.timestamp
+                "sid={}; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
+                self.id
             ))
             .unwrap(),
             HeaderValue::from_str(&format!(
-                "sid={}; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
-                self.id
+                "st={}; Secure; SameSite=Strict; Max-Age=34560000",
+                self.timestamp
             ))
             .unwrap(),
         ]
