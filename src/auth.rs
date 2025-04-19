@@ -336,12 +336,12 @@ fn new_challenge() -> [u8; 68] {
 //noinspection DuplicatedCode
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
-    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
-    let session_state = SessionState::from_headers(request.headers(), &store_cache).await;
+    let session_state = SessionState::from_headers(request.headers(), store_cache).await;
     let (user, session) = match session_state {
         SessionState::Valid { user, session } => (Some(user), Some(session)),
         SessionState::Expired { user } => (Some(user), None),
@@ -642,7 +642,7 @@ pub(crate) async fn handle_auth(
                     .is_some()
                 {
                     if let Some(session) =
-                        User::create_session(user_id, store_cache.clone(), Some(passkey_id)).await
+                        User::create_session(user_id, store_cache, Some(passkey_id)).await
                     {
                         debug!("200 https://{server_name}/api/auth/validate_credential");
                         let mut response = Response::builder().status(StatusCode::OK);

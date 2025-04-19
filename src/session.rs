@@ -68,7 +68,7 @@ impl Session {
 impl User {
     pub async fn create_session(
         user_id: impl Into<String>,
-        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
         passkey_id: Option<String>,
     ) -> Option<Session> {
         let user_id = user_id.into();

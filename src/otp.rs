@@ -56,7 +56,7 @@ struct NewCredentialsContext<'a> {
 impl Otp {
     pub async fn send(
         user: &User,
-        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
         handler: Arc<Handler>,
         server_name: Arc<String>,
     ) -> Option<()> {
@@ -139,7 +139,7 @@ impl Otp {
         }
     }
 
-    async fn create(user: &User, store_cache: Arc<NonEmptyPinboard<Snapshot>>) -> Option<Self> {
+    async fn create(user: &User, store_cache: &Arc<NonEmptyPinboard<Snapshot>>) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -166,7 +166,7 @@ impl Otp {
     }
 
     async fn remove_expired(
-        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
         user_id: Option<&str>,
     ) -> Option<()> {
         let timestamp = SystemTime::now()
@@ -203,7 +203,7 @@ pub(crate) fn token_signature(token: &str) -> Option<String> {
 
 pub(crate) async fn handle_otp(
     request: Request<Incoming>,
-    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     handler: Arc<Handler>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
@@ -285,9 +285,10 @@ pub(crate) async fn handle_otp(
                 if let Some(user) = single {
                     let handler = handler.clone();
                     let server_name = server_name.clone();
+                    let store_cache = store_cache.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, store_cache, handler, server_name).await
+                        Otp::send(&user, &store_cache, handler, server_name).await
                     });
                 }
             }
@@ -316,7 +317,7 @@ pub(crate) async fn handle_otp(
             let token = token.unwrap();
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
-                    if let Some(user) = validate_otp(token, &store_cache).await {
+                    if let Some(user) = validate_otp(token, store_cache).await {
                         if let Some(session) =
                             User::create_session(&user.id, store_cache, None).await
                         {

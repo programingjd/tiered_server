@@ -148,7 +148,7 @@ pub(crate) async fn ensure_admin_users_exist(
             {
                 Otp::send(
                     &user,
-                    store_cache.clone(),
+                    store_cache,
                     handler.clone(),
                     Arc::new("localhost".to_string()),
                 )
