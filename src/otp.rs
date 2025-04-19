@@ -283,7 +283,6 @@ pub(crate) async fn handle_otp(
                     },
                 ));
                 if let Some(user) = single {
-                    let store_cache = store_cache.clone();
                     let handler = handler.clone();
                     let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
@@ -317,8 +316,10 @@ pub(crate) async fn handle_otp(
             let token = token.unwrap();
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
-                    if let Some(user) = validate_otp(token, store_cache).await {
-                        if let Some(session) = User::create_session(&user.id).await {
+                    if let Some(user) = validate_otp(token, &store_cache).await {
+                        if let Some(session) =
+                            User::create_session(&user.id, store_cache, None).await
+                        {
                             let mut response = Response::builder();
                             let headers = response.headers_mut().unwrap();
                             session.cookies().into_iter().for_each(|cookie| {
@@ -346,9 +347,9 @@ pub(crate) async fn handle_otp(
         .unwrap()
 }
 
-async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
+async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
     let key = format!("otp/{token}");
-    let otp = snapshot.get_ref().get::<Otp>(key.as_str())?;
+    let otp = store_cache.get_ref().get::<Otp>(key.as_str())?;
     let _ = Snapshot::delete([key.as_str()].iter()).await;
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -359,7 +360,7 @@ async fn validate_otp(token: &str, snapshot: Arc<NonEmptyPinboard<Snapshot>>) ->
         None
     } else {
         let key = format!("acc/{}", otp.user_id);
-        let user = snapshot.get_ref().get(key.as_str())?;
+        let user = store_cache.get_ref().get(key.as_str())?;
         Some(user)
     }
 }

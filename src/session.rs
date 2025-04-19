@@ -44,6 +44,7 @@ pub enum SessionState {
 pub struct Session {
     pub(crate) id: String,
     pub user_id: String,
+    pub passkey_id: Option<String>,
     pub timestamp: u32,
 }
 
@@ -65,7 +66,11 @@ impl Session {
 }
 
 impl User {
-    pub async fn create_session(user_id: impl Into<String>) -> Option<Session> {
+    pub async fn create_session(
+        user_id: impl Into<String>,
+        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        passkey_id: Option<String>,
+    ) -> Option<Session> {
         let user_id = user_id.into();
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -81,9 +86,32 @@ impl User {
                 .chain(random.into_iter())
                 .collect::<Vec<_>>(),
         );
+        let session_keys = store_cache
+            .get_ref()
+            .list::<Session>("sid/")
+            .filter_map(|(key, session)| {
+                if let Some(ref passkey_id) = passkey_id {
+                    if let Some(ref session_passkey_id) = session.passkey_id {
+                        if session_passkey_id == passkey_id.as_str() {
+                            Some(key.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else if user_id == session.user_id {
+                    Some(key.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        Snapshot::delete(session_keys.iter()).await;
         let session = Session {
             id: session_id,
             user_id,
+            passkey_id,
             timestamp,
         };
         let key = format!("sid/{}", session.id);

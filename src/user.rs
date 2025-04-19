@@ -83,7 +83,7 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
 }
 
 pub(crate) async fn ensure_admin_users_exist(
-    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     handler: Arc<Handler>,
 ) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");

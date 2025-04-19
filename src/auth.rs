@@ -641,7 +641,9 @@ pub(crate) async fn handle_auth(
                     })
                     .is_some()
                 {
-                    if let Some(session) = User::create_session(user_id).await {
+                    if let Some(session) =
+                        User::create_session(user_id, store_cache.clone(), Some(passkey_id)).await
+                    {
                         debug!("200 https://{server_name}/api/auth/validate_credential");
                         let mut response = Response::builder().status(StatusCode::OK);
                         let headers = response.headers_mut().unwrap();

@@ -167,7 +167,7 @@ pub async fn serve() {
     let snapshot = snapshot(None).await.expect("failed to cache store content");
     let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
     let static_handler = Arc::new(NonEmptyPinboard::new(Arc::new(static_handler)));
-    ensure_admin_users_exist(store_cache.clone(), static_handler.get_ref().clone())
+    ensure_admin_users_exist(&store_cache, static_handler.get_ref().clone())
         .await
         .expect("failed to get or create admin users");
     update_store_cache_loop(store_cache.clone());
