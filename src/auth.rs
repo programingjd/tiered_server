@@ -337,6 +337,7 @@ fn new_challenge() -> [u8; 68] {
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
@@ -351,7 +352,7 @@ pub(crate) async fn handle_auth(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 /api/auth/credential_request_options");
+            debug!("405 https://{server_name}/api/auth/credential_request_options");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -372,7 +373,7 @@ pub(crate) async fn handle_auth(
             // allow_credentials: keys,
             allow_credentials: vec![],
         };
-        debug!("200 /api/auth/credential_request_options");
+        debug!("200 https://{server_name}/api/auth/credential_request_options");
         return Response::builder()
             .status(StatusCode::OK)
             .header(CONTENT_TYPE, JSON)
@@ -386,7 +387,7 @@ pub(crate) async fn handle_auth(
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 headers.insert(ALLOW, HEAD);
-                debug!("405 /api/auth/credentials");
+                debug!("405 https://{server_name}/api/auth/credentials");
                 return response
                     .status(StatusCode::METHOD_NOT_ALLOWED)
                     .body(Either::Right(Empty::new()))
@@ -398,27 +399,27 @@ pub(crate) async fn handle_auth(
                 .next()
                 .is_some()
             {
-                debug!("204 /api/auth/credentials");
+                debug!("204 https://{server_name}/api/auth/credentials");
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
             } else {
-                debug!("404 /api/auth/credentials");
+                debug!("404 https://{server_name}/api/auth/credentials");
                 Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
             };
         }
-        debug!("403 /api/auth/credentials");
+        debug!("403 https://{server_name}/api/auth/credentials");
     } else if path == "/credential_creation_options" {
         if let Some(user) = user {
             if method != Method::GET {
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 headers.insert(ALLOW, GET);
-                debug!("405 /api/auth/credential_creation_options");
+                debug!("405 https://{server_name}/api/auth/credential_creation_options");
                 return response
                     .status(StatusCode::METHOD_NOT_ALLOWED)
                     .body(Either::Right(Empty::new()))
@@ -441,7 +442,7 @@ pub(crate) async fn handle_auth(
                 rp: Rp::default(),
                 user: UserId::from(&user),
             };
-            debug!("200 /api/auth/credential_creation_options");
+            debug!("200 https://{server_name}/api/auth/credential_creation_options");
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(CONTENT_TYPE, JSON)
@@ -450,14 +451,14 @@ pub(crate) async fn handle_auth(
                 )))
                 .unwrap();
         }
-        debug!("403 /api/auth/credential_creation_options");
+        debug!("403 https://{server_name}/api/auth/credential_creation_options");
     } else if path == "/record_credential" {
         if let Some(user) = user {
             if request.method() != Method::POST {
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 headers.insert(ALLOW, POST);
-                debug!("405 /api/auth/record_credential");
+                debug!("405 https://{server_name}/api/auth/record_credential");
                 return response
                     .status(StatusCode::METHOD_NOT_ALLOWED)
                     .body(Either::Right(Empty::new()))
@@ -533,7 +534,7 @@ pub(crate) async fn handle_auth(
                             .await
                             .is_some()
                         {
-                            debug!("200 /api/auth/record_credential");
+                            debug!("200 https://{server_name}/api/auth/record_credential");
                             return Response::builder()
                                 .status(StatusCode::OK)
                                 .body(Either::Right(Empty::new()))
@@ -543,13 +544,13 @@ pub(crate) async fn handle_auth(
                 }
             }
         }
-        debug!("403 /api/auth/record_credential");
+        debug!("403 https://{server_name}/api/auth/record_credential");
     } else if path == "/validate_credential" {
         if request.method() != Method::POST {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
-            debug!("405 /api/auth/validate_credential");
+            debug!("405 https://{server_name}/api/auth/validate_credential");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -641,7 +642,7 @@ pub(crate) async fn handle_auth(
                     .is_some()
                 {
                     if let Some(session) = User::create_session(user_id).await {
-                        debug!("200 /api/auth/validate_credential");
+                        debug!("200 https://{server_name}/api/auth/validate_credential");
                         let mut response = Response::builder().status(StatusCode::OK);
                         let headers = response.headers_mut().unwrap();
                         session.cookies().into_iter().for_each(|cookie| {
@@ -652,13 +653,13 @@ pub(crate) async fn handle_auth(
                 }
             }
         }
-        debug!("403 /api/auth/validate_credential");
+        debug!("403 https://{server_name}/api/auth/validate_credential");
     } else if path == "/forget_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 /api/auth/forget_user");
+            debug!("405 https://{server_name}/api/auth/forget_user");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -668,14 +669,14 @@ pub(crate) async fn handle_auth(
             if let Some(session) = session {
                 Snapshot::delete([format!("sid/{}", session.id)].iter()).await;
             }
-            debug!("200 /api/auth/forget_user");
+            debug!("200 https://{server_name}/api/auth/forget_user");
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
             headers.append(SET_COOKIE, DELETE_ST_COOKIES);
             headers.append(SET_COOKIE, DELETE_SID_COOKIES);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
-        debug!("403 /api/auth/forget_user");
+        debug!("403 https://{server_name}/api/auth/forget_user");
     } else if path == "/disconnect_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
@@ -692,14 +693,14 @@ pub(crate) async fn handle_auth(
                 session.timestamp = 0;
                 Snapshot::set(&format!("sid/{}", session.id), &session).await;
             }
-            debug!("302 /api/auth/disconnect_user");
+            debug!("302 https://{server_name}/api/auth/disconnect_user");
             let mut response = Response::builder().status(StatusCode::FOUND);
             let headers = response.headers_mut().unwrap();
             headers.insert(LOCATION, HeaderValue::from_static("/"));
             headers.append(SET_COOKIE, SID_EXPIRED);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
-        debug!("403 /api/auth/disconnect_user");
+        debug!("403 https://{server_name}/api/auth/disconnect_user");
     }
     Response::builder()
         .status(StatusCode::FORBIDDEN)

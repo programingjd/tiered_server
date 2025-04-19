@@ -58,6 +58,7 @@ impl Otp {
         user: &User,
         store_cache: Arc<NonEmptyPinboard<Snapshot>>,
         handler: Arc<Handler>,
+        server_name: Arc<String>,
     ) -> Option<()> {
         let email = match &user.identification {
             IdentificationMethod::Email(email) => email.address.as_str(),
@@ -66,12 +67,8 @@ impl Otp {
         let otp = Self::create(user, store_cache).await?;
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
-        #[cfg(debug_assertions)]
-        let hostname = "www.localhost";
-        #[cfg(not(debug_assertions))]
-        let hostname = *crate::server::DOMAIN_APEX;
         let link_url = format!(
-            "https://{hostname}{}otp/{id}.{signature}",
+            "https://{server_name}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
         let subject = (*EMAIL_ONE_TIME_LOGIN_TITLE)?;
@@ -208,6 +205,7 @@ pub(crate) async fn handle_otp(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
     handler: Arc<Handler>,
+    server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[8..];
     if request.method() == Method::POST {
@@ -287,10 +285,14 @@ pub(crate) async fn handle_otp(
                 if let Some(user) = single {
                     let store_cache = store_cache.clone();
                     let handler = handler.clone();
+                    let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
-                    let _ = spawn(async move { Otp::send(&user, store_cache, handler).await });
+                    let _ = spawn(async move {
+                        Otp::send(&user, store_cache, handler, server_name).await
+                    });
                 }
             }
+            debug!("202 https://{server_name}/api/otp");
             return Response::builder()
                 .status(StatusCode::ACCEPTED)
                 .body(Either::Right(Empty::new()))
@@ -301,7 +303,7 @@ pub(crate) async fn handle_otp(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 /api/otp{path}");
+            debug!("405 https://{server_name}/api/otp{path}");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -337,7 +339,7 @@ pub(crate) async fn handle_otp(
             }
         }
     }
-    debug!("404 /api/otp{path}");
+    debug!("404 https://{server_name}/api/otp{path}");
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))

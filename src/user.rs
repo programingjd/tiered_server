@@ -146,7 +146,13 @@ pub(crate) async fn ensure_admin_users_exist(
             )
             .await
             {
-                Otp::send(&user, store_cache.clone(), handler.clone()).await?;
+                Otp::send(
+                    &user,
+                    store_cache.clone(),
+                    handler.clone(),
+                    Arc::new("localhost".to_string()),
+                )
+                .await?;
             }
         }
     }
@@ -212,6 +218,7 @@ impl User {
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
     store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     if path == "/admin/reg/code" {
@@ -220,7 +227,7 @@ pub(crate) async fn handle_user(
         {
             if user.admin {
                 if let Some(secret) = *VALIDATION_TOTP_SECRET {
-                    debug!("200 /api/user/admin/reg/code");
+                    debug!("200 https://{server_name}/api/user/admin/reg/code");
                     return Response::builder()
                         .status(StatusCode::OK)
                         .header(CONTENT_TYPE, TEXT)
@@ -366,14 +373,14 @@ pub(crate) async fn handle_user(
                             // TODO send email
                         }
                     }
-                    debug!("202 /api/user");
+                    debug!("202 https://{server_name}/api/user");
                     return Response::builder()
                         .status(StatusCode::ACCEPTED)
                         .body(Either::Right(Empty::new()))
                         .unwrap();
                 }
             }
-            debug!("400 /api/user");
+            debug!("400 https://{server_name}/api/user");
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
@@ -384,7 +391,7 @@ pub(crate) async fn handle_user(
             // TODO update user field if post
             // TODO get user info if get
         }
-        debug!("403 /api/user");
+        debug!("403 https://{server_name}/api/user");
     }
     Response::builder()
         .status(StatusCode::FORBIDDEN)

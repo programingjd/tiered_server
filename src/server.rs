@@ -1,6 +1,7 @@
 extern crate rustls as extern_rustls;
 
 use crate::api::handle_api;
+use crate::download::download;
 use crate::env::ConfigurationKey::{
     BindAddress, DomainApex, DomainTitle, StaticGithubBranch, StaticGithubRepository,
     StaticGithubUser,
@@ -31,7 +32,6 @@ use hyper::{Method, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use pinboard::NonEmptyPinboard;
 use rcgen::generate_simple_self_signed;
-use reqwest::Client;
 use std::convert::Infallible;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::ops::Deref;
@@ -78,14 +78,6 @@ impl ResolvesServerCert for LocalhostResolver {
     fn resolve(&self, _client_hello: RustClientHello) -> Option<Arc<CertifiedKey>> {
         Some(self.key.clone())
     }
-}
-
-async fn download(url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let response = Client::default().get(url).send().await?;
-    if !response.status().is_success() {
-        panic!("failed to download {url} ({})", response.status().as_str());
-    }
-    Ok(response.bytes().await?.to_vec())
 }
 
 pub async fn serve() {
@@ -174,8 +166,8 @@ pub async fn serve() {
 
     let snapshot = snapshot(None).await.expect("failed to cache store content");
     let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
-    let static_handler = Arc::new(static_handler);
-    ensure_admin_users_exist(store_cache.clone(), static_handler.clone())
+    let static_handler = Arc::new(NonEmptyPinboard::new(Arc::new(static_handler)));
+    ensure_admin_users_exist(store_cache.clone(), static_handler.get_ref().clone())
         .await
         .expect("failed to get or create admin users");
     update_store_cache_loop(store_cache.clone());
@@ -202,28 +194,34 @@ pub async fn serve() {
                     } else {
                         return;
                     };
+                    let server_name = Arc::new(client_hello.server_name().unwrap().to_string());
                     if let Ok(stream) = start_handshake.into_stream(Arc::new(config)).await {
                         let io = TokioIo::new(stream);
                         let _ = http1::Builder::new()
                             .serve_connection(
                                 io,
                                 service_fn(move |request| {
+                                    let server_name = server_name.clone();
                                     let handler = static_handler.clone();
                                     let store_cache = store_cache.clone();
                                     async move {
                                         let path = request.uri().path();
-                                        debug!("{} {path}", request.method());
+                                        debug!("{} https://${server_name}{path}", request.method());
                                         // webhook call from the GitHub repository that notifies
                                         // that the static content should be updated
                                         if is_webhook {
-                                            Ok::<_, Infallible>(handle_webhook(request).await)
+                                            Ok::<_, Infallible>(
+                                                handle_webhook(request, handler).await,
+                                            )
                                         }
                                         // api requests
                                         else if api_path_prefix.matches(path) {
+                                            let handler: Arc<Handler> = handler.get_ref().clone();
                                             Ok::<_, Infallible>(
-                                                handle_api(request, store_cache, handler).await,
+                                                handle_api(request, store_cache, handler, server_name).await,
                                             )
                                         } else {
+                                            let handler: Arc<Handler> = handler.get_ref().clone();
                                             if user_path_prefix.matches(path) {
                                                 // user scoped html pages that require login
                                                 if let Some(HTML) =
@@ -248,7 +246,7 @@ pub async fn serve() {
                                                             // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
-                                                                    debug!("302 {path}");
+                                                                    debug!("302 https://${server_name}{path}");
                                                                     let mut response =
                                                                         Response::builder().status(
                                                                             StatusCode::FOUND,
@@ -269,7 +267,7 @@ pub async fn serve() {
                                                                     response
                                                                 }
                                                                 _ => {
-                                                                    debug!("403 {path}");
+                                                                    debug!("403 https://${server_name}{path}");
                                                                     Response::builder().status(
                                                                         StatusCode::FORBIDDEN,
                                                                     )
@@ -289,7 +287,7 @@ pub async fn serve() {
                                             // static content
                                             let path = path.to_string();
                                             let response = handler.handle_hyper_request(request);
-                                            debug!("{} {path}", response.status().as_u16());
+                                            debug!("{} https://${server_name}{path}", response.status().as_u16());
                                             Ok::<_, Infallible>(response)
                                         }
                                     }

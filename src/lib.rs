@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod download;
 mod email;
 pub mod env;
 mod firewalls;
