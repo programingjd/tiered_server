@@ -206,7 +206,7 @@ pub async fn serve() {
                                     let store_cache = store_cache.clone();
                                     async move {
                                         let path = request.uri().path();
-                                        debug!("{} https://${server_name}{path}", request.method());
+                                        debug!("{} https://{server_name}{path}", request.method());
                                         // webhook call from the GitHub repository that notifies
                                         // that the static content should be updated
                                         if is_webhook {
@@ -246,7 +246,7 @@ pub async fn serve() {
                                                             // redirect to the login page
                                                             let response = match request.method() {
                                                                 &Method::HEAD | &Method::GET => {
-                                                                    debug!("302 https://${server_name}{path}");
+                                                                    debug!("302 https://{server_name}{path}");
                                                                     let mut response =
                                                                         Response::builder().status(
                                                                             StatusCode::FOUND,
@@ -267,7 +267,7 @@ pub async fn serve() {
                                                                     response
                                                                 }
                                                                 _ => {
-                                                                    debug!("403 https://${server_name}{path}");
+                                                                    debug!("403 https://{server_name}{path}");
                                                                     Response::builder().status(
                                                                         StatusCode::FORBIDDEN,
                                                                     )
@@ -287,7 +287,7 @@ pub async fn serve() {
                                             // static content
                                             let path = path.to_string();
                                             let response = handler.handle_hyper_request(request);
-                                            debug!("{} https://${server_name}{path}", response.status().as_u16());
+                                            debug!("{} https://{server_name}{path}", response.status().as_u16());
                                             Ok::<_, Infallible>(response)
                                         }
                                     }

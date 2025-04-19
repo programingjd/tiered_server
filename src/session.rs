@@ -19,12 +19,12 @@ pub(crate) static LOGIN_PATH: LazyLock<&str> =
     LazyLock::new(|| secret_value(LoginPath).unwrap_or("/login"));
 
 pub(crate) const SID_EXPIRED: HeaderValue =
-    HeaderValue::from_static("st=0; Secure; SameSite=Strict; Max-Age=34560000");
+    HeaderValue::from_static("st=0; Path=/; Secure; SameSite=Strict; Max-Age=34560000");
 pub(crate) const DELETE_ST_COOKIES: HeaderValue = HeaderValue::from_static(
-    "st=0; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "st=0; Path=/; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
 );
 pub(crate) const DELETE_SID_COOKIES: HeaderValue = HeaderValue::from_static(
-    "sid=0; Secure; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "sid=0; Path=/; Secure; HttpOnly; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
 );
 
 pub enum SessionState {
@@ -50,12 +50,12 @@ impl Session {
     pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
         [
             HeaderValue::from_str(&format!(
-                "sid={}; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
+                "sid={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
                 self.id
             ))
             .unwrap(),
             HeaderValue::from_str(&format!(
-                "st={}; Secure; SameSite=Strict; Max-Age=34560000",
+                "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
                 self.timestamp
             ))
             .unwrap(),
