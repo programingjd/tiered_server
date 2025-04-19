@@ -57,7 +57,7 @@ impl Otp {
     pub async fn send(
         user: &User,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-        handler: Arc<Handler>,
+        handler: &Arc<Handler>,
         server_name: Arc<String>,
     ) -> Option<()> {
         let email = match &user.identification {
@@ -288,7 +288,7 @@ pub(crate) async fn handle_otp(
                     let store_cache = store_cache.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &store_cache, handler, server_name).await
+                        Otp::send(&user, &store_cache, &handler, server_name).await
                     });
                 }
             }

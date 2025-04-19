@@ -142,14 +142,14 @@ pub(crate) async fn ensure_admin_users_exist(
                 date_of_birth,
                 true,
                 false,
-                store_cache.clone(),
+                store_cache,
             )
             .await
             {
                 Otp::send(
                     &user,
                     store_cache,
-                    handler.clone(),
+                    &handler,
                     Arc::new("localhost".to_string()),
                 )
                 .await?;
@@ -171,7 +171,7 @@ impl User {
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
         needs_validation: bool,
-        store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -217,7 +217,7 @@ impl User {
 #[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
-    store_cache: Arc<NonEmptyPinboard<Snapshot>>,
+    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
