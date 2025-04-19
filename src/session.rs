@@ -128,11 +128,21 @@ impl SessionState {
                         .unwrap()
                         .as_secs() as u32
                         - 180;
-                    if session.timestamp < now && now - session.timestamp < MAX_AGE {
-                        debug!("session is valid");
+                    if session.timestamp - 180 <= now && now < session.timestamp + MAX_AGE {
+                        debug!(
+                            "session is valid: {} in [{}, {}]",
+                            session.timestamp,
+                            now,
+                            session.timestamp + MAX_AGE
+                        );
                         SessionState::Valid { user, session }
                     } else {
-                        debug!("session has expired");
+                        debug!(
+                            "session expired: {} !in [{}, {}]",
+                            session.timestamp,
+                            now,
+                            session.timestamp + MAX_AGE
+                        );
                         SessionState::Expired { user }
                     }
                 } else {
