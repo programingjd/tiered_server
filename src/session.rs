@@ -12,6 +12,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
+use tracing::debug;
 
 const MAX_AGE: u32 = 14_400; // 4h
 
@@ -102,6 +103,7 @@ impl SessionState {
                 .and_then(|it| Cookie::parse(it).ok())
                 .and_then(|it| {
                     it.iter().find_map(|it| {
+                        debug!("cookie: {}={}", it.get_name(), it.get_value());
                         if it.get_name() == "sid" {
                             Some(it.get_value())
                         } else {
@@ -111,6 +113,7 @@ impl SessionState {
                 })
         });
         if cookie_value.is_none() {
+            debug!("session cookie is missing");
             SessionState::Missing
         } else {
             let session_id = cookie_value.unwrap();
@@ -126,14 +129,18 @@ impl SessionState {
                         .as_secs() as u32
                         - 180;
                     if session.timestamp < now && now - session.timestamp < MAX_AGE {
+                        debug!("session is valid");
                         SessionState::Valid { user, session }
                     } else {
+                        debug!("session has expired");
                         SessionState::Expired { user }
                     }
                 } else {
+                    debug!("user is missing");
                     SessionState::Missing
                 }
             } else {
+                debug!("Session is missing");
                 SessionState::Missing
             }
         }

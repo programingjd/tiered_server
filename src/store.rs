@@ -18,6 +18,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Read;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
@@ -37,7 +38,10 @@ struct Entry {
 
 type StorageCache = Arc<NonEmptyPinboard<Snapshot>>;
 
+static CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
+
 pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
+    CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
     thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -52,7 +56,9 @@ pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
                     let current = store_cache.get_ref();
                     if let Some(snapshot) = snapshot(Some(&current)).await {
                         store_cache.set(snapshot);
-                        trace!("snapshot updated");
+                        let version =
+                            CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        trace!("snapshot updated (version: {version})");
                     } else {
                         warn!("update snapshot failed");
                     }
@@ -121,7 +127,29 @@ impl Snapshot {
                 .chain(iter::once(Bytes::from_owner(encrypted.encrypted_base64))),
         );
         match store.put(&path, payload).await {
-            Ok(_) => Some(()),
+            Ok(_) => {
+                let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
+                if version == 0 {
+                    return Some(());
+                }
+                trace!("cache version before update: {version}");
+                let mut retries = 0_u8;
+                let mut delay = interval(Duration::from_millis(300_u64));
+                delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                loop {
+                    delay.tick().await;
+                    if retries == 10 {
+                        warn!("cache update delay too long");
+                        return None;
+                    }
+                    let current_version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
+                    trace!("cache version: {current_version}");
+                    if current_version > version {
+                        return Some(());
+                    }
+                    retries += 1;
+                }
+            }
             Err(err) => {
                 warn!("{err:?}");
                 None
