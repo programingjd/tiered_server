@@ -57,7 +57,7 @@ impl Session {
             .unwrap(),
             HeaderValue::from_str(&format!(
                 "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
-                self.timestamp
+                self.timestamp + MAX_AGE
             ))
             .unwrap(),
         ]
