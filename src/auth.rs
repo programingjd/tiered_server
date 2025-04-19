@@ -393,12 +393,12 @@ pub(crate) async fn handle_auth(
                     .body(Either::Right(Empty::new()))
                     .unwrap();
             }
-            return if store_cache
+            return if let Some(first) = store_cache
                 .get_ref()
-                .list::<PassKey>(&format!("acc/{}/", user.id))
+                .list::<PassKey>(&format!("pk/{}/", user.id))
                 .next()
-                .is_some()
             {
+                debug!("{}", first.0);
                 debug!("204 https://{server_name}/api/auth/credentials");
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)

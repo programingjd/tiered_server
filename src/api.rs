@@ -4,7 +4,7 @@ use crate::store::Snapshot;
 use crate::user::handle_user;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::{Request, Response};
+use hyper::{Request, Response, StatusCode};
 use pinboard::NonEmptyPinboard;
 use std::sync::Arc;
 use zip_static_handler::handler::Handler;
@@ -23,5 +23,8 @@ pub(crate) async fn handle_api(
     } else if path == "/user" || path.starts_with("/user/") {
         return handle_user(request, store_cache, server_name).await;
     }
-    Response::new(Either::Right(Empty::new()))
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .body(Either::Right(Empty::new()))
+        .unwrap()
 }

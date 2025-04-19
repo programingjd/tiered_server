@@ -275,7 +275,7 @@ The endpoints are under the api prefix.
 
 - `HEAD` `{api}/auth/credentials`<br>
   Login session existence check<br>
-  Returns a `204 No Content` if the user is known (the session might be expired though),
+  Returns a `204 No Content` if the user is known and has at least one passkey (the session might be expired though),
   or a `404 Not Found` otherwise.
 
 - `GET` `{api}/auth/credential_request_options`<br>

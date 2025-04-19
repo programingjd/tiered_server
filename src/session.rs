@@ -156,7 +156,10 @@ impl SessionState {
                         .unwrap()
                         .as_secs() as u32
                         - 180;
-                    if session.timestamp - 180 <= now && now < session.timestamp + MAX_AGE {
+                    if session.timestamp > 0
+                        && session.timestamp - 180 <= now
+                        && now < session.timestamp + MAX_AGE
+                    {
                         debug!(
                             "session is valid: {} in [{}, {}]",
                             session.timestamp,
