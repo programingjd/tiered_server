@@ -223,7 +223,7 @@ pub(crate) async fn handle_user(
     let path = &request.uri().path()[9..];
     if path == "/admin/reg/code" {
         if let SessionState::Valid { user, .. } =
-            SessionState::from_headers(request.headers(), &store_cache).await
+            SessionState::from_headers(request.headers(), store_cache).await
         {
             if user.admin {
                 if let Some(secret) = *VALIDATION_TOTP_SECRET {
@@ -386,7 +386,7 @@ pub(crate) async fn handle_user(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         } else if let SessionState::Valid { user: _user, .. } =
-            SessionState::from_headers(request.headers(), &store_cache).await
+            SessionState::from_headers(request.headers(), store_cache).await
         {
             // TODO update user field if post
             // TODO get user info if get

@@ -4,6 +4,7 @@ use crate::env::ConfigurationKey::{
 };
 use crate::env::secret_value;
 use crate::headers::GET;
+use crate::iter::single;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::store::Snapshot;
@@ -364,8 +365,4 @@ async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>
         let user = store_cache.get_ref().get(key.as_str())?;
         Some(user)
     }
-}
-
-fn single<T>(mut iter: impl Iterator<Item = T>) -> Option<T> {
-    iter.next().filter(|_| iter.next().is_none())
 }

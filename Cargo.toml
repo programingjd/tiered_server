@@ -22,11 +22,6 @@ version = "0.17"
 default-features = false
 features = ["std", "less-safe-getrandom-custom-or-rdrand"]
 
-[dependencies.coset]
-version = "0.3"
-default-features = false
-features = ["std"]
-
 [dependencies.simple_asn1]
 version = "0.6"
 default-features = false
@@ -139,10 +134,21 @@ version = "0.1"
 default-features = false
 features = ["std"]
 
-[dev-dependencies.rsa-der]
-version = "0.3"
+[dev-dependencies.rsa]
+version = "0.9"
 default-features = false
-features = []
+features = ["std", "sha2", "getrandom"]
+
+[dev-dependencies.ed25519-dalek]
+version = "2.1"
+default-features = false
+features = ["std", "rand_core", "pkcs8"]
+
+[dev-dependencies.p256]
+version = "0.13"
+default-features = false
+features = ["std", "ecdsa", "pkcs8"]
+
 
 [profile.release]
 lto = "fat"

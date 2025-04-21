@@ -1,16 +1,12 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, POST};
-use crate::rsa::rsa_spki_der;
-use crate::server::{DOMAIN_APEX, DOMAIN_TITLE};
+use crate::iter::{pair, single};
+use crate::server::DOMAIN_TITLE;
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
 use crate::store::Snapshot;
 use crate::user::User;
 use base64_simd::URL_SAFE_NO_PAD;
-use coset::iana::{
-    Algorithm, Ec2KeyParameter, EllipticCurve, EnumI64, KeyType, OkpKeyParameter, RsaKeyParameter,
-};
-use coset::{CborSerializable, CoseKey, Label, RegisteredLabel, RegisteredLabelWithPrivate};
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE, LOCATION, SET_COOKIE};
@@ -22,8 +18,12 @@ use ring::digest::{SHA256, digest};
 use ring::hmac::{HMAC_SHA256, Key, Tag, sign};
 use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature;
-use ring::signature::{ECDSA_P256_SHA256_ASN1, ED25519, RSA_PKCS1_2048_8192_SHA256};
+use ring::signature::{
+    ECDSA_P256_SHA256_ASN1, ED25519, RSA_PKCS1_2048_8192_SHA256, RsaPublicKeyComponents,
+};
 use serde::{Deserialize, Serialize};
+use simple_asn1::{ASN1Block, BigUint, from_der};
+use std::fmt::Write;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tracing::debug;
@@ -33,7 +33,7 @@ static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
     secret_value(ChallengeSigningKey).unwrap_or("4nyZsaw5j1JxMy38uIj5sxHucy7Dh_6KTqQWFq2x94g")
 });
 
-const CHALLENGE_VALIDITY_DURATION: u32 = 30; // 30 secs
+const CHALLENGE_VALIDITY_DURATION: u32 = 180; // 3 mins
 
 #[derive(Serialize)]
 struct Credentials {
@@ -95,6 +95,7 @@ impl Default for Rp {
 #[derive(Serialize)]
 struct UserId {
     id: String,
+    #[serde(rename = "displayName")]
     display_name: String,
     name: String,
 }
@@ -134,182 +135,148 @@ struct ClientData<'a> {
 
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type")]
-enum PassKey {
-    ED25519 { id: String, x: String },
-    ES256 { id: String, x: String, y: String },
-    RS256 { id: String, n: String },
+struct PassKey {
+    id: String,
+    subject_public_key_info: String,
 }
 
 impl PassKey {
-    fn into_id(self) -> String {
-        match self {
-            PassKey::ED25519 { id, .. } => id,
-            PassKey::ES256 { id, .. } => id,
-            PassKey::RS256 { id, .. } => id,
-        }
-    }
-    fn id(&self) -> &str {
-        match self {
-            PassKey::ED25519 { id, .. } => id.as_str(),
-            PassKey::ES256 { id, .. } => id.as_str(),
-            PassKey::RS256 { id, .. } => id.as_str(),
-        }
-    }
-    fn ed25519(id: String, bytes: &[u8]) -> Self {
-        Self::ED25519 {
-            id,
-            x: URL_SAFE_NO_PAD.encode_to_string(bytes),
-        }
-    }
-    fn es256(id: String, x: &[u8], y: &[u8]) -> Self {
-        Self::ES256 {
-            id,
-            x: URL_SAFE_NO_PAD.encode_to_string(x),
-            y: URL_SAFE_NO_PAD.encode_to_string(y),
-        }
-    }
-    fn rsa256(id: String, bytes: &[u8]) -> Self {
-        Self::RS256 {
-            id,
-            n: URL_SAFE_NO_PAD.encode_to_string(bytes),
-        }
-    }
     fn verify(&self, signature: &[u8], authenticator_data: &[u8], client_data_hash: &[u8]) -> bool {
-        match self {
-            PassKey::ED25519 { x, .. } => {
-                if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
-                    let public_key = signature::UnparsedPublicKey::new(&ED25519, x);
-                    let mut payload =
-                        Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
-                    payload.extend(authenticator_data.iter());
-                    payload.extend(client_data_hash.iter());
-                    return public_key.verify(&payload, signature).is_ok();
-                };
-            }
-            PassKey::ES256 { x, y, .. } => {
-                if let Ok(x) = URL_SAFE_NO_PAD.decode_to_vec(x) {
-                    if let Ok(y) = URL_SAFE_NO_PAD.decode_to_vec(y) {
-                        let mut public_key_sec1 = [0u8; 65];
-                        public_key_sec1[0] = 0x04;
-                        public_key_sec1[1..33].copy_from_slice(&x);
-                        public_key_sec1[33..].copy_from_slice(&y);
-                        let key = signature::UnparsedPublicKey::new(
-                            &ECDSA_P256_SHA256_ASN1,
-                            public_key_sec1,
-                        );
-
-                        let mut payload =
-                            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
-                        payload.extend(authenticator_data.iter());
-                        payload.extend(client_data_hash.iter());
-                        return key.verify(&payload, signature).is_ok();
-                    }
-                };
-            }
-            PassKey::RS256 { n, .. } => {
-                if let Ok(n) = URL_SAFE_NO_PAD.decode_to_vec(n) {
-                    if let Some(public_key_der) = rsa_spki_der(&n) {
-                        let public_key = signature::UnparsedPublicKey::new(
-                            &RSA_PKCS1_2048_8192_SHA256,
-                            public_key_der,
-                        );
-                        let mut payload =
-                            Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
-                        payload.extend(authenticator_data.iter());
-                        payload.extend(client_data_hash.iter());
-                        return public_key.verify(&payload, signature).is_ok();
-                    }
-                };
-            }
-        }
-        false
-    }
-    fn new(id: String, alg: i16, cose: &[u8]) -> Option<Self> {
-        match alg {
-            -8 | -7 | -257 => {}
-            _ => return None,
-        }
-        let key = CoseKey::from_slice(cose).ok()?;
-        if let (RegisteredLabel::Assigned(key_type), RegisteredLabelWithPrivate::Assigned(alg)) =
-            (key.kty, key.alg?)
+        let subject_public_key_info = URL_SAFE_NO_PAD
+            .decode_to_vec(self.subject_public_key_info.clone())
+            .unwrap();
+        let subject_public_key_info = match from_der(&subject_public_key_info).ok().and_then(single)
         {
-            match (key_type, alg) {
-                (KeyType::OKP, Algorithm::EdDSA) => {
-                    let crv: Option<u64> = key.params.iter().find_map(|(k, v)| {
-                        if k == &Label::Int(OkpKeyParameter::Crv.to_i64()) {
-                            v.as_integer().and_then(|it| it.try_into().ok())
-                        } else {
-                            None
-                        }
-                    });
-                    if crv == Some(EllipticCurve::Ed25519 as u64) {
-                        if let Some(x) = key.params.iter().find_map(|(k, v)| {
-                            if k == &Label::Int(OkpKeyParameter::X.to_i64()) {
-                                v.as_bytes().map(|it| it.as_slice())
-                            } else {
-                                None
+            Some(ASN1Block::Sequence(_, blocks)) => blocks,
+            _ => {
+                debug!("invalid SubjectPublicKeyInfo");
+                return false;
+            }
+        };
+        let info = format!("{subject_public_key_info:?}");
+        println!("{info}");
+        let (algorithm_oid, subject_public_key) = match pair(subject_public_key_info) {
+            Some((ASN1Block::Sequence(_, blocks), ASN1Block::BitString(_, _, bytes))) => {
+                match blocks.first() {
+                    Some(ASN1Block::ObjectIdentifier(_, it)) => {
+                        let it = match it.as_vec::<&BigUint>() {
+                            Ok(it) => it,
+                            Err(_) => {
+                                debug!("invalid AlgorithmIdentifier");
+                                return false;
                             }
-                        }) {
-                            return Some(PassKey::ed25519(id, x));
+                        };
+                        let mut oid = String::with_capacity(it.len() * 5);
+                        let mut iter = it.iter();
+                        if let Some(first) = iter.next() {
+                            let _ = write!(oid, "{}", first);
                         }
+                        for it in iter {
+                            oid.push('.');
+                            let _ = write!(oid, "{}", it);
+                        }
+                        (oid, bytes)
+                    }
+                    _ => {
+                        debug!("invalid AlgorithmIdentifier");
+                        return false;
                     }
                 }
-                (KeyType::EC2, Algorithm::ES256) => {
-                    let crv: Option<u64> = key.params.iter().find_map(|(k, v)| {
-                        if k == &Label::Int(Ec2KeyParameter::Crv.to_i64()) {
-                            v.as_integer().and_then(|it| it.try_into().ok())
-                        } else {
-                            None
-                        }
-                    });
-                    if crv == Some(EllipticCurve::P_256 as u64) {
-                        if let Some(x) = key.params.iter().find_map(|(k, v)| {
-                            if k == &Label::Int(Ec2KeyParameter::X.to_i64()) {
-                                v.as_bytes().map(|it| it.as_slice())
-                            } else {
-                                None
-                            }
-                        }) {
-                            if let Some(y) = key.params.iter().find_map(|(k, v)| {
-                                if k == &Label::Int(Ec2KeyParameter::Y.to_i64()) {
-                                    v.as_bytes().map(|it| it.as_slice())
-                                } else {
-                                    None
+            }
+            _ => {
+                debug!("invalid SubjectPublicKeyInfo");
+                return false;
+            }
+        };
+        match algorithm_oid.as_str() {
+            "1.3.101.112" => {
+                // ED25519
+                if subject_public_key.len() != 32 {
+                    debug!("invalid ED25519 subject public key");
+                    return false;
+                }
+                let x = &subject_public_key;
+                let public_key = signature::UnparsedPublicKey::new(&ED25519, x);
+                let mut payload =
+                    Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                payload.extend(authenticator_data.iter());
+                payload.extend(client_data_hash.iter());
+                public_key.verify(&payload, signature).is_ok()
+            }
+            "1.2.840.10045.2.1" => {
+                // ES256
+                let sec1 = &subject_public_key;
+                let public_key = signature::UnparsedPublicKey::new(&ECDSA_P256_SHA256_ASN1, sec1);
+                let mut payload =
+                    Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                payload.extend(authenticator_data.iter());
+                payload.extend(client_data_hash.iter());
+                public_key.verify(&payload, signature).is_ok()
+            }
+            "1.2.840.113549.1.1.1" => {
+                // RSA256
+                let (n, e) = match from_der(&subject_public_key).ok().and_then(single) {
+                    Some(ASN1Block::Sequence(_, blocks)) => match pair(blocks) {
+                        Some((ASN1Block::Integer(_, n), ASN1Block::Integer(_, e))) => {
+                            let n = match n.to_biguint() {
+                                Some(it) => it.to_bytes_be(),
+                                None => {
+                                    debug!("invalid RSA n value");
+                                    return false;
                                 }
-                            }) {
-                                return Some(PassKey::es256(id, x, y));
-                            }
+                            };
+                            let e = match e.to_biguint() {
+                                Some(it) => it.to_bytes_be(),
+                                None => {
+                                    debug!("invalid RSA e value");
+                                    return false;
+                                }
+                            };
+                            (n, e)
                         }
+                        _ => {
+                            debug!("invalid RSA subject public key");
+                            return false;
+                        }
+                    },
+                    _ => {
+                        debug!("invalid RSA subject public key");
+                        return false;
                     }
-                }
-                (KeyType::RSA, Algorithm::RS256) => {
-                    let e: Option<u32> = key.params.iter().find_map(|(k, v)| {
-                        if k == &Label::Int(RsaKeyParameter::E.to_i64()) {
-                            v.as_bytes().map(|it| {
-                                let mut bytes = [0u8; 4];
-                                bytes[8 - it.len()..].copy_from_slice(it.as_slice());
-                                u32::from_be_bytes(bytes)
-                            })
-                        } else {
-                            None
-                        }
-                    });
-                    if e == Some(65537) {
-                        if let Some(n) = key.params.iter().find_map(|(k, v)| {
-                            if k == &Label::Int(RsaKeyParameter::N.to_i64()) {
-                                v.as_bytes().map(|it| it.as_slice())
-                            } else {
-                                None
-                            }
-                        }) {
-                            return Some(PassKey::rsa256(id, n));
-                        }
-                    }
-                }
-                _ => return None,
+                };
+                let public_key = RsaPublicKeyComponents { n, e };
+                // let public_key = signature::UnparsedPublicKey::new(
+                //     &RSA_PKCS1_2048_8192_SHA256,
+                //     subject_public_key,
+                // );
+                let mut payload =
+                    Vec::with_capacity(authenticator_data.len() + client_data_hash.len());
+                payload.extend(authenticator_data.iter());
+                payload.extend(client_data_hash.iter());
+                public_key
+                    .verify(&RSA_PKCS1_2048_8192_SHA256, &payload, signature)
+                    .is_ok()
+            }
+            _ => {
+                debug!("invalid algorithm OID");
+                false
             }
         }
-        None
+    }
+    fn new(id: String, alg: i16, subject_public_key_info: Vec<u8>) -> Option<Self> {
+        match alg {
+            -8 => debug!("ED25519"),
+            -7 => debug!("ES256"),
+            -257 => debug!("RS256"),
+            it => {
+                debug!("Unsupported algorithm: {it}");
+                return None;
+            }
+        }
+        Some(Self {
+            id,
+            subject_public_key_info: URL_SAFE_NO_PAD.encode_to_string(&subject_public_key_info),
+        })
     }
 }
 
@@ -428,7 +395,7 @@ pub(crate) async fn handle_auth(
             let keys = store_cache
                 .get_ref()
                 .list::<PassKey>(&format!("pk/{}/", user.id))
-                .map(|(_, key)| Credentials::from_id(key.into_id()))
+                .map(|(_, key)| Credentials::from_id(key.id))
                 .collect::<Vec<_>>();
             let challenge = new_challenge();
             let credential_creation = CredentialCreationOptions {
@@ -503,22 +470,31 @@ pub(crate) async fn handle_auth(
                                 if let Ok(client_data) =
                                     serde_json::from_slice::<ClientData>(it.as_ref())
                                 {
-                                    let challenge = client_data.challenge;
-                                    if challenge.len() == 68 {
-                                        let timestamp: [u8; 4] =
-                                            challenge[32..36].try_into().unwrap();
-                                        let timestamp = u32::from_be_bytes(timestamp);
-                                        let now = SystemTime::now()
-                                            .duration_since(SystemTime::UNIX_EPOCH)
-                                            .unwrap()
-                                            .as_secs()
-                                            as u32;
-                                        let elapsed = now - timestamp;
-                                        if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION
-                                        {
-                                            let signature = challenge_signature(&challenge[..36]);
-                                            if signature.as_ref() == &challenge[36..] {
-                                                challenge_verified = true;
+                                    if let Ok(challenge) =
+                                        URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
+                                    {
+                                        if challenge.len() == 68 {
+                                            let timestamp: [u8; 4] =
+                                                challenge[32..36].try_into().unwrap();
+                                            let timestamp = u32::from_be_bytes(timestamp);
+                                            let now = SystemTime::now()
+                                                .duration_since(SystemTime::UNIX_EPOCH)
+                                                .unwrap()
+                                                .as_secs()
+                                                as u32;
+                                            let elapsed = now - timestamp;
+                                            if timestamp > now
+                                                || elapsed > CHALLENGE_VALIDITY_DURATION
+                                            {
+                                                debug!(
+                                                    "challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}",
+                                                );
+                                            } else {
+                                                let signature =
+                                                    challenge_signature(&challenge[..36]);
+                                                if signature.as_ref() == &challenge[36..] {
+                                                    challenge_verified = true;
+                                                }
                                             }
                                         }
                                     }
@@ -529,8 +505,8 @@ pub(crate) async fn handle_auth(
                     }
                 }
                 if i.is_some() && challenge_verified {
-                    if let Some(passkey) = PassKey::new(i.unwrap(), a, k.as_slice()) {
-                        if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id()), &passkey)
+                    if let Some(passkey) = PassKey::new(i.unwrap(), a, k) {
+                        if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id), &passkey)
                             .await
                             .is_some()
                         {
@@ -594,22 +570,31 @@ pub(crate) async fn handle_auth(
                             if let Ok(client_data) =
                                 serde_json::from_slice::<ClientData>(it.as_ref())
                             {
-                                let challenge = client_data.challenge;
-                                if challenge.len() == 68 {
-                                    let timestamp: [u8; 4] = challenge[32..36].try_into().unwrap();
-                                    let timestamp = u32::from_be_bytes(timestamp);
-                                    let now = SystemTime::now()
-                                        .duration_since(SystemTime::UNIX_EPOCH)
-                                        .unwrap()
-                                        .as_secs()
-                                        as u32;
-                                    let elapsed = now - timestamp;
-                                    if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION {
-                                        let signature = challenge_signature(&challenge[..36]);
-                                        if signature.as_ref() == &challenge[36..] {
-                                            hash = Some(
-                                                digest(&SHA256, it.as_ref()).as_ref().to_vec(),
+                                if let Ok(challenge) =
+                                    URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
+                                {
+                                    if challenge.len() == 68 {
+                                        let timestamp: [u8; 4] =
+                                            challenge[32..36].try_into().unwrap();
+                                        let timestamp = u32::from_be_bytes(timestamp);
+                                        let now = SystemTime::now()
+                                            .duration_since(SystemTime::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_secs()
+                                            as u32;
+                                        let elapsed = now - timestamp;
+                                        if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION
+                                        {
+                                            debug!(
+                                                "challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}",
                                             );
+                                        } else {
+                                            let signature = challenge_signature(&challenge[..36]);
+                                            if signature.as_ref() == &challenge[36..] {
+                                                hash = Some(
+                                                    digest(&SHA256, it.as_ref()).as_ref().to_vec(),
+                                                );
+                                            }
                                         }
                                     }
                                 }
@@ -627,9 +612,9 @@ pub(crate) async fn handle_auth(
             if i.is_some()
                 && u.is_some()
                 && hash.is_some()
-                && s.is_empty()
-                && d.is_empty()
-                && digest(&SHA256, DOMAIN_APEX.as_bytes()).as_ref() == &d[..32]
+                && !s.is_empty()
+                && !d.is_empty()
+                && digest(&SHA256, server_name.as_bytes()).as_ref() == &d[..32]
             {
                 let passkey_id = i.unwrap();
                 let user_id = u.unwrap();
@@ -708,4 +693,123 @@ pub(crate) async fn handle_auth(
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests_rsa {
+    use crate::auth::PassKey;
+    use rsa::RsaPrivateKey;
+    use rsa::pkcs1v15::SigningKey;
+    use rsa::pkcs8::EncodePublicKey;
+    use rsa::rand_core::{OsRng, RngCore};
+    use rsa::sha2::Sha256;
+    use rsa::signature::{SignatureEncoding, Signer};
+
+    #[test]
+    fn verify_rsa256() {
+        let key_count = 10_usize;
+        let payload_count = 10_usize;
+        let mut rng = OsRng;
+        for i in 0..key_count {
+            let pkcs8 = RsaPrivateKey::new(&mut rng, 2048).unwrap();
+            let public_key = pkcs8.to_public_key();
+            let spki = public_key.to_public_key_der().unwrap().to_vec();
+            let signing_key = SigningKey::<Sha256>::new(pkcs8);
+            for j in 0..payload_count {
+                let len = 10
+                    + rng
+                        .next_u32()
+                        .to_be_bytes()
+                        .into_iter()
+                        .map(|it| it as u16)
+                        .sum::<u16>() as usize;
+                let index = (rng.next_u32() % (len as u32 - 5)) as usize;
+                let mut payload = vec![0u8; len];
+                rng.fill_bytes(&mut payload);
+                let signature = signing_key.sign(&payload).to_vec();
+                let passkey =
+                    PassKey::new(format!("{i}_{j}_{len}__rsa256"), -257, spki.clone()).unwrap();
+                assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_ed25519 {
+    use crate::auth::PassKey;
+    use ed25519_dalek::ed25519::signature::rand_core::{OsRng, RngCore};
+    use ed25519_dalek::pkcs8::EncodePublicKey;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn verify_ed25519() {
+        let key_count = 10_usize;
+        let payload_count = 10_usize;
+        let mut rng = OsRng;
+        for i in 0..key_count {
+            let signing_key = SigningKey::generate(&mut rng);
+            let public_key = signing_key.verifying_key();
+            let spki = public_key.to_public_key_der().unwrap().to_vec();
+            for j in 0..payload_count {
+                let len = 10
+                    + rng
+                        .next_u32()
+                        .to_be_bytes()
+                        .into_iter()
+                        .map(|it| it as u16)
+                        .sum::<u16>() as usize;
+                let index = (rng.next_u32() % (len as u32 - 5)) as usize;
+                let mut payload = vec![0u8; len];
+                rng.fill_bytes(&mut payload);
+                let signature = signing_key.sign(&payload).to_vec();
+                let passkey =
+                    PassKey::new(format!("{i}_{j}_{len}__ed25519"), -8, spki.clone()).unwrap();
+                assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests_es256 {
+    use crate::auth::PassKey;
+    use p256::PublicKey;
+    use p256::ecdsa::signature::Signer;
+    use p256::ecdsa::{Signature, SigningKey};
+    use p256::elliptic_curve::rand_core::{OsRng, RngCore};
+
+    #[test]
+    fn verify_es256() {
+        let key_count = 1_usize;
+        let payload_count = 1_usize;
+        let mut rng = OsRng;
+        for i in 0..key_count {
+            let signing_key = SigningKey::random(&mut rng);
+            let verifying_key = signing_key.verifying_key();
+            let public_key =
+                PublicKey::from_sec1_bytes(verifying_key.to_sec1_bytes().as_ref()).unwrap();
+            let spki = p256::pkcs8::EncodePublicKey::to_public_key_der(&public_key)
+                .unwrap()
+                .to_vec();
+            for j in 0..payload_count {
+                let len = 10
+                    + rng
+                        .next_u32()
+                        .to_be_bytes()
+                        .into_iter()
+                        .map(|it| it as u16)
+                        .sum::<u16>() as usize;
+                let index = (rng.next_u32() % (len as u32 - 5)) as usize;
+                let mut payload = vec![0u8; len];
+                rng.fill_bytes(&mut payload);
+                let signature: Signature = signing_key.sign(&payload);
+                let signature = signature.to_der().as_bytes().to_vec();
+                let len = signature.len();
+                let passkey =
+                    PassKey::new(format!("{i}_{j}_{len}__ed25519"), -7, spki.clone()).unwrap();
+                assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
+            }
+        }
+    }
 }
