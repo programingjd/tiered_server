@@ -1,20 +1,22 @@
 use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
+use crate::headers::{GET_POST_PUT, JSON};
 use crate::norm::{
     normalize_email, normalize_first_name, normalize_last_name, normalize_phone_number,
 };
 use crate::otp::Otp;
-use crate::session::SessionState;
+use crate::session::{SESSION_MAX_AGE, SessionState};
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{CONTENT_TYPE, HeaderValue};
+use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
@@ -385,11 +387,47 @@ pub(crate) async fn handle_user(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
                 .unwrap();
-        } else if let SessionState::Valid { user: _user, .. } =
+        } else if let SessionState::Valid { user, session } =
             SessionState::from_headers(request.headers(), store_cache).await
         {
-            // TODO update user field if post
-            // TODO get user info if get
+            if request.method() == Method::GET {
+                let mut response = Response::builder();
+                response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
+                debug!("200 https://{server_name}/api/user");
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, JSON)
+                    .body(Either::Left(Full::from(
+                        serde_json::to_vec(&json!({
+                            "first_name": user.first_name,
+                            "last_name": user.last_name,
+                            "date_of_birth": user.date_of_birth,
+                            "email": match &user.identification {
+                                IdentificationMethod::Email(email) => Some(&email.normalized_address),
+                                _ => None
+                            },
+                            "sms": match &user.identification {
+                                IdentificationMethod::Sms(sms) => Some(&sms.normalized_number),
+                                _ => None
+                            },
+                            "session_expiration_timestamp": session.timestamp + SESSION_MAX_AGE,
+                            "session_from_passkey": session.passkey_id.is_some(),  
+                            "admin": user.admin,
+                        })).unwrap(),
+                    )))
+                    .unwrap();
+            } else if request.method() == Method::POST {
+                // TODO update user field
+            } else {
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(ALLOW, GET_POST_PUT);
+                debug!("405 https://{server_name}/api/user");
+                return response
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
+            }
         }
         debug!("403 https://{server_name}/api/user");
     }

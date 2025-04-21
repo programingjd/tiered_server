@@ -14,7 +14,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tracing::debug;
 
-const MAX_AGE: u32 = 14_400; // 4h
+pub(crate) const SESSION_MAX_AGE: u32 = 14_400; // 4h
 
 pub(crate) static LOGIN_PATH: LazyLock<&str> =
     LazyLock::new(|| secret_value(LoginPath).unwrap_or("/login"));
@@ -58,7 +58,7 @@ impl Session {
             .unwrap(),
             HeaderValue::from_str(&format!(
                 "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
-                self.timestamp + MAX_AGE
+                self.timestamp + SESSION_MAX_AGE
             ))
             .unwrap(),
         ]
@@ -158,13 +158,13 @@ impl SessionState {
                         - 180;
                     if session.timestamp > 0
                         && session.timestamp - 180 <= now
-                        && now < session.timestamp + MAX_AGE
+                        && now < session.timestamp + SESSION_MAX_AGE
                     {
                         debug!(
                             "session is valid: {} in [{}, {}]",
                             session.timestamp,
                             now,
-                            session.timestamp + MAX_AGE
+                            session.timestamp + SESSION_MAX_AGE
                         );
                         SessionState::Valid { user, session }
                     } else {
@@ -172,7 +172,7 @@ impl SessionState {
                             "session expired: {} !in [{}, {}]",
                             session.timestamp,
                             now,
-                            session.timestamp + MAX_AGE
+                            session.timestamp + SESSION_MAX_AGE
                         );
                         SessionState::Expired { user }
                     }

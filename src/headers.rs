@@ -6,10 +6,11 @@ use zip_static_handler::http::headers::{
     SERVICE_WORKER_ALLOWED, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION,
 };
 
-pub const HTML: &[u8] = b"text/html";
+pub const JSON: HeaderValue = HeaderValue::from_static("application/json");
 pub const GET: HeaderValue = HeaderValue::from_static("GET");
 pub const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
 pub const POST: HeaderValue = HeaderValue::from_static("POST");
+pub const GET_POST_PUT: HeaderValue = HeaderValue::from_static("GET, POST, PUT");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
     HeaderName::from_static("x-hub-signature-256-hash");
@@ -98,7 +99,7 @@ pub(crate) fn headers_for_type(
 ) -> Option<HeadersAndCompression> {
     match extension {
         "html" | "htm" => Some(headers_and_compression(
-            Some(HTML),
+            Some(b"text/html"),
             Some(CACHE_CONTROL_REVALIDATE),
             true,
             true,

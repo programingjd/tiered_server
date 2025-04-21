@@ -9,7 +9,6 @@ use crate::env::ConfigurationKey::{
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
 use crate::headers::HSelector;
-use crate::headers::HTML;
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
@@ -43,6 +42,8 @@ use tracing::debug;
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
 use zip_static_handler::http::headers::CONTENT_TYPE;
+
+const HTML: &[u8] = b"text/html";
 
 //noinspection SpellCheckingInspection
 pub static DOMAIN_APEX: LazyLock<&'static str> =
@@ -91,6 +92,18 @@ pub async fn serve() {
         .without_time()
         .with_env_filter(tracing_subscriber::EnvFilter::new(
             "tiered_server=debug,zip_static_handler=info,hyper=info",
+        ))
+        .init();
+    #[cfg(not(debug_assertions))]
+    tracing_subscriber::fmt()
+        .compact()
+        .with_ansi(true)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .without_time()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(
+            "tiered_server=warn,zip_static_handler=info,hyper=info",
         ))
         .init();
 

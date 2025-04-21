@@ -1,6 +1,6 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
-use crate::headers::{GET, HEAD, POST};
+use crate::headers::{GET, HEAD, JSON, POST};
 use crate::iter::{pair, single};
 use crate::server::DOMAIN_TITLE;
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
@@ -279,8 +279,6 @@ impl PassKey {
         })
     }
 }
-
-const JSON: HeaderValue = HeaderValue::from_static("application/json");
 
 fn challenge_signature(challenge: &[u8]) -> Tag {
     let key = Key::new(HMAC_SHA256, SIGNING_KEY.as_bytes());
