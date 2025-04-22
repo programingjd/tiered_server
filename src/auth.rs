@@ -411,7 +411,7 @@ fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) ->
             debug!("challenge metadata mismatch");
         }
     }
-    let timestamp: [u8; 4] = challenge[18 + len..22 + len].try_into().unwrap();
+    let timestamp: [u8; 4] = challenge[50 + len..54 + len].try_into().unwrap();
     let timestamp = u32::from_be_bytes(timestamp);
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
