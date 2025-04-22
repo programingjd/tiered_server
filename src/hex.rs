@@ -1,8 +1,7 @@
-pub(crate) fn hex_to_bytes(hex: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn hex_to_bytes(hex: &[u8], mut out: Vec<u8>) -> Option<Vec<u8>> {
     if hex.len() % 2 != 0 {
         return None;
     }
-    let mut out = vec![];
     for it in hex.chunks(2) {
         let mut b = 0_u8;
         let first = it[0].to_ascii_lowercase();

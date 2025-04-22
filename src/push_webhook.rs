@@ -36,7 +36,7 @@ pub(crate) async fn handle_webhook(
             .headers()
             .get(X_HUB_SIGNATURE_256_HASH)
             .and_then(|it| it.as_bytes().strip_prefix(b"sha256="))
-            .and_then(hex_to_bytes)
+            .and_then(|it| hex_to_bytes(it, Vec::with_capacity(32)))
         {
             let key = Key::new(HMAC_SHA256, webhook_token.as_bytes());
             if let Ok(body) = request.collect().await.map(|it| it.to_bytes()) {

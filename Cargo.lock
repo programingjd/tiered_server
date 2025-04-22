@@ -2479,6 +2479,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "log",
  "minijinja",
  "multer",
  "object_store",

@@ -153,3 +153,5 @@ features = ["std", "ecdsa", "pkcs8"]
 [profile.release]
 lto = "fat"
 codegen-units = 1
+[dependencies]
+log = "0.4.26"

@@ -278,13 +278,15 @@ The endpoints are under the api prefix.
   Returns a `204 No Content` if the user is known and has at least one passkey (the session might be expired though),
   or a `404 Not Found` otherwise.
 
-- `GET` `{api}/auth/credential_request_options`<br>
+- `POST` `{api}/auth/credential_request_options`<br>
   Passkey challenge request.<br>
-  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialRequestOptions).
+  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialRequestOptions).<br>
+  The body should be a JSON object with a `uuid` (from `crypto.randomUUID()`) and can include `metadata`.
 
-- `GET` `{api}/auth/credential_creation_options`<br>
+- `POST` `{api}/auth/credential_creation_options`<br>
   Passkey challenge for creating new credentials for the current user.<br>
-  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialCreationOptions).
+  See [MDN documentation](https://developer.mozilla.org/en-US/docs/Web/API/PublicKeyCredentialCreationOptions).<br>
+  The body should be a JSON object with a `uuid` (from `crypto.randomUUID()`) and can include `metadata`.
 
 - `POST` `{api}/auth/record_credential`<br>
   Checks and records a new passkey for the current user.

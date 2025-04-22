@@ -1,6 +1,7 @@
 use crate::env::ConfigurationKey::ChallengeSigningKey;
 use crate::env::secret_value;
 use crate::headers::{GET, HEAD, JSON, POST};
+use crate::hex::hex_to_bytes;
 use crate::iter::{pair, single};
 use crate::server::DOMAIN_TITLE;
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
@@ -22,6 +23,7 @@ use ring::signature::{
     ECDSA_P256_SHA256_ASN1, ED25519, RSA_PKCS1_2048_8192_SHA256, RsaPublicKeyComponents,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use simple_asn1::{ASN1Block, BigUint, from_der};
 use std::fmt::Write;
 use std::sync::{Arc, LazyLock};
@@ -34,6 +36,12 @@ static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
 });
 
 const CHALLENGE_VALIDITY_DURATION: u32 = 180; // 3 mins
+
+#[derive(Serialize, Deserialize)]
+struct ChallengeMetadata {
+    uuid: String,
+    metadata: Option<Value>,
+}
 
 #[derive(Serialize)]
 struct Credentials {
@@ -285,17 +293,138 @@ fn challenge_signature(challenge: &[u8]) -> Tag {
     sign(&key, challenge)
 }
 
-fn new_challenge() -> [u8; 68] {
-    let mut challenge = [0u8; 68];
-    SystemRandom::new().fill(&mut challenge[..32]).unwrap();
+fn new_challenge(challenge_metadata: &ChallengeMetadata) -> Option<Vec<u8>> {
+    let mut challenge = Vec::with_capacity(1024);
+    let mut part_count = 0_usize;
+    for (i, it) in challenge_metadata.uuid.split('-').enumerate() {
+        part_count += 1;
+        match i {
+            0 => {
+                if it.len() != 8 {
+                    return None;
+                } else {
+                    challenge = hex_to_bytes(it.as_bytes(), challenge)?;
+                }
+            }
+            1..=3 => {
+                if it.len() != 4 {
+                    return None;
+                } else {
+                    challenge = hex_to_bytes(it.as_bytes(), challenge)?;
+                }
+            }
+            4 => {
+                if it.len() != 12 {
+                    return None;
+                } else {
+                    challenge = hex_to_bytes(it.as_bytes(), challenge)?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    if part_count != 5 {
+        return None;
+    }
+    challenge.push(0);
+    challenge.push(0);
+    if let Some(ref metadata) = challenge_metadata.metadata {
+        serde_json::to_writer(&mut challenge, metadata).ok()?;
+    }
+    let len = challenge.len();
+    // 16 (uuid) + 2 (json len) + len (json) + 32 (random) + 4 (timestamp) + 32 (signature) = 86 + len
+    if len > (u16::MAX - 86) as usize {
+        return None;
+    }
+    let len_bytes = ((len - 18) as u16).to_be_bytes();
+    challenge[16] = len_bytes[0];
+    challenge[17] = len_bytes[1];
+    let mut buf = [0u8; 32];
+    SystemRandom::new().fill(&mut buf).unwrap();
+    challenge.extend_from_slice(&buf);
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs() as u32;
-    challenge[32..36].copy_from_slice(timestamp.to_be_bytes().as_slice());
-    let signature = challenge_signature(&challenge[..36]);
-    challenge[36..].copy_from_slice(signature.as_ref());
-    challenge
+    let timestamp_bytes = timestamp.to_be_bytes();
+    challenge.push(timestamp_bytes[0]);
+    challenge.push(timestamp_bytes[1]);
+    challenge.push(timestamp_bytes[2]);
+    challenge.push(timestamp_bytes[3]);
+    let signature = challenge_signature(&challenge);
+    challenge.extend_from_slice(signature.as_ref());
+    Some(challenge)
+}
+
+fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) -> bool {
+    if challenge.len() < 70 {
+        debug!("challenge too short");
+        return false;
+    }
+    let uuid = &challenge[..16];
+    let mut uuid_str = String::new();
+    uuid[..4]
+        .iter()
+        .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
+    uuid_str.push('-');
+    uuid[4..6]
+        .iter()
+        .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
+    uuid_str.push('-');
+    uuid[6..8]
+        .iter()
+        .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
+    uuid_str.push('-');
+    uuid[8..10]
+        .iter()
+        .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
+    uuid_str.push('-');
+    uuid[10..]
+        .iter()
+        .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
+    if uuid_str != challenge_metadata.uuid {
+        debug!("challenge uuid mismatch");
+        return false;
+    }
+    let len = u16::from_be_bytes([challenge[16], challenge[17]]) as usize;
+    // 16 (uuid) + 2 (json len) + len (json) + 32 (random) + 4 (timestamp) + 32 (signature) = 86 + len
+    if challenge.len() != len + 86 {
+        debug!("challenge length mismatch");
+        return false;
+    }
+    if len == 0 && challenge_metadata.metadata.is_some() {
+        debug!("missing challenge metadata");
+        return false;
+    }
+    if len > 0 && challenge_metadata.metadata.is_none() {
+        debug!("unexpected challenge metadata");
+        return false;
+    }
+    if len > 0 {
+        if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&challenge[38..]) {
+            let metadata = challenge_metadata.metadata.as_ref().unwrap();
+            if &value != metadata {
+                debug!("challenge metadata mismatch");
+                return false;
+            }
+        } else {
+            debug!("challenge metadata mismatch");
+        }
+    }
+    let timestamp: [u8; 4] = challenge[18 + len..22 + len].try_into().unwrap();
+    let timestamp = u32::from_be_bytes(timestamp);
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+    let elapsed = now - timestamp;
+    if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION {
+        debug!("challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}");
+        false
+    } else {
+        let signature = challenge_signature(&challenge[..len + 54]);
+        signature.as_ref() == &challenge[len + 54..]
+    }
 }
 
 //noinspection DuplicatedCode
@@ -313,39 +442,47 @@ pub(crate) async fn handle_auth(
         _ => (None, None),
     };
     if path == "/credential_request_options" {
-        if method != Method::GET {
+        if method != Method::POST {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
-            headers.insert(ALLOW, GET);
+            headers.insert(ALLOW, POST);
             debug!("405 https://{server_name}/api/auth/credential_request_options");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         }
-        // let keys = user
-        //     .map(|user| {
-        //         store_cache
-        //             .get_ref()
-        //             .list::<PassKey>(&format!("/pk/{}/", user.id))
-        //             .map(|(_, key)| Credentials::from_id(key.into_id()))
-        //             .collect::<Vec<_>>()
-        //     })
-        //     .unwrap_or(vec![]);
-        let challenge = new_challenge();
-        let credential_create = CredentialRequestOptions {
-            challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-            // allow_credentials: keys,
-            allow_credentials: vec![],
-        };
-        debug!("200 https://{server_name}/api/auth/credential_request_options");
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, JSON)
-            .body(Either::Left(Full::from(
-                serde_json::to_vec(&credential_create).unwrap(),
-            )))
-            .unwrap();
+        if let Some(challenge) = request
+            .collect()
+            .await
+            .map(|it| it.to_bytes())
+            .ok()
+            .and_then(|body| serde_json::from_slice::<ChallengeMetadata>(body.as_ref()).ok())
+            .and_then(|metadata| new_challenge(&metadata))
+        {
+            // let keys = user
+            //     .map(|user| {
+            //         store_cache
+            //             .get_ref()
+            //             .list::<PassKey>(&format!("/pk/{}/", user.id))
+            //             .map(|(_, key)| Credentials::from_id(key.into_id()))
+            //             .collect::<Vec<_>>()
+            //     })
+            //     .unwrap_or(vec![]);
+            let credential_create = CredentialRequestOptions {
+                challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
+                // allow_credentials: keys,
+                allow_credentials: vec![],
+            };
+            debug!("200 https://{server_name}/api/auth/credential_request_options");
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, JSON)
+                .body(Either::Left(Full::from(
+                    serde_json::to_vec(&credential_create).unwrap(),
+                )))
+                .unwrap();
+        }
     } else if path == "/credentials" {
         if let Some(user) = user {
             if method != Method::HEAD {
@@ -380,41 +517,49 @@ pub(crate) async fn handle_auth(
         debug!("403 https://{server_name}/api/auth/credentials");
     } else if path == "/credential_creation_options" {
         if let Some(user) = user {
-            if method != Method::GET {
+            if method != Method::POST {
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
-                headers.insert(ALLOW, GET);
+                headers.insert(ALLOW, POST);
                 debug!("405 https://{server_name}/api/auth/credential_creation_options");
                 return response
                     .status(StatusCode::METHOD_NOT_ALLOWED)
                     .body(Either::Right(Empty::new()))
                     .unwrap();
             }
-            let keys = store_cache
-                .get_ref()
-                .list::<PassKey>(&format!("pk/{}/", user.id))
-                .map(|(_, key)| Credentials::from_id(key.id))
-                .collect::<Vec<_>>();
-            let challenge = new_challenge();
-            let credential_creation = CredentialCreationOptions {
-                challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-                exclude_credentials: keys,
-                pub_key_cred_params: vec![
-                    PubKeyCredParams::ed25519(),
-                    PubKeyCredParams::es256(),
-                    PubKeyCredParams::rs256(),
-                ],
-                rp: Rp::default(),
-                user: UserId::from(&user),
-            };
-            debug!("200 https://{server_name}/api/auth/credential_creation_options");
-            return Response::builder()
-                .status(StatusCode::OK)
-                .header(CONTENT_TYPE, JSON)
-                .body(Either::Left(Full::from(
-                    serde_json::to_vec(&credential_creation).unwrap(),
-                )))
-                .unwrap();
+            if let Some(challenge) = request
+                .collect()
+                .await
+                .map(|it| it.to_bytes())
+                .ok()
+                .and_then(|body| serde_json::from_slice::<ChallengeMetadata>(body.as_ref()).ok())
+                .and_then(|metadata| new_challenge(&metadata))
+            {
+                let keys = store_cache
+                    .get_ref()
+                    .list::<PassKey>(&format!("pk/{}/", user.id))
+                    .map(|(_, key)| Credentials::from_id(key.id))
+                    .collect::<Vec<_>>();
+                let credential_creation = CredentialCreationOptions {
+                    challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
+                    exclude_credentials: keys,
+                    pub_key_cred_params: vec![
+                        PubKeyCredParams::ed25519(),
+                        PubKeyCredParams::es256(),
+                        PubKeyCredParams::rs256(),
+                    ],
+                    rp: Rp::default(),
+                    user: UserId::from(&user),
+                };
+                debug!("200 https://{server_name}/api/auth/credential_creation_options");
+                return Response::builder()
+                    .status(StatusCode::OK)
+                    .header(CONTENT_TYPE, JSON)
+                    .body(Either::Left(Full::from(
+                        serde_json::to_vec(&credential_creation).unwrap(),
+                    )))
+                    .unwrap();
+            }
         }
         debug!("403 https://{server_name}/api/auth/credential_creation_options");
     } else if path == "/record_credential" {
@@ -443,6 +588,7 @@ pub(crate) async fn handle_auth(
                 let mut i = None;
                 let mut a = 0_i16;
                 let mut k = vec![];
+                let mut m = None;
                 let mut challenge_verified = false;
                 while let Ok(Some(field)) = multipart.next_field().await {
                     match field.name() {
@@ -463,6 +609,13 @@ pub(crate) async fn handle_auth(
                                 k.extend(it.as_ref().iter());
                             }
                         }
+                        Some("m") => {
+                            if let Ok(it) = field.text().await {
+                                if let Ok(it) = serde_json::from_str::<ChallengeMetadata>(&it) {
+                                    m = Some(it)
+                                }
+                            }
+                        }
                         Some("c") => {
                             if let Ok(it) = field.bytes().await {
                                 if let Ok(client_data) =
@@ -471,29 +624,9 @@ pub(crate) async fn handle_auth(
                                     if let Ok(challenge) =
                                         URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
                                     {
-                                        if challenge.len() == 68 {
-                                            let timestamp: [u8; 4] =
-                                                challenge[32..36].try_into().unwrap();
-                                            let timestamp = u32::from_be_bytes(timestamp);
-                                            let now = SystemTime::now()
-                                                .duration_since(SystemTime::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_secs()
-                                                as u32;
-                                            let elapsed = now - timestamp;
-                                            if timestamp > now
-                                                || elapsed > CHALLENGE_VALIDITY_DURATION
-                                            {
-                                                debug!(
-                                                    "challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}",
-                                                );
-                                            } else {
-                                                let signature =
-                                                    challenge_signature(&challenge[..36]);
-                                                if signature.as_ref() == &challenge[36..] {
-                                                    challenge_verified = true;
-                                                }
-                                            }
+                                        if let Some(ref metadata) = m {
+                                            challenge_verified =
+                                                verify_challenge(&challenge, metadata)
                                         }
                                     }
                                 }
@@ -546,6 +679,7 @@ pub(crate) async fn handle_auth(
             let mut u = None;
             let mut d = vec![];
             let mut hash = None;
+            let mut m = None;
             while let Ok(Some(field)) = multipart.next_field().await {
                 match field.name() {
                     Some("i") => {
@@ -563,6 +697,13 @@ pub(crate) async fn handle_auth(
                             u = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
                         }
                     }
+                    Some("m") => {
+                        if let Ok(it) = field.text().await {
+                            if let Ok(it) = serde_json::from_str::<ChallengeMetadata>(&it) {
+                                m = Some(it)
+                            }
+                        }
+                    }
                     Some("c") => {
                         if let Ok(it) = field.bytes().await {
                             if let Ok(client_data) =
@@ -571,28 +712,11 @@ pub(crate) async fn handle_auth(
                                 if let Ok(challenge) =
                                     URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
                                 {
-                                    if challenge.len() == 68 {
-                                        let timestamp: [u8; 4] =
-                                            challenge[32..36].try_into().unwrap();
-                                        let timestamp = u32::from_be_bytes(timestamp);
-                                        let now = SystemTime::now()
-                                            .duration_since(SystemTime::UNIX_EPOCH)
-                                            .unwrap()
-                                            .as_secs()
-                                            as u32;
-                                        let elapsed = now - timestamp;
-                                        if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION
-                                        {
-                                            debug!(
-                                                "challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}",
+                                    if let Some(ref metadata) = m {
+                                        if verify_challenge(&challenge, metadata) {
+                                            hash = Some(
+                                                digest(&SHA256, it.as_ref()).as_ref().to_vec(),
                                             );
-                                        } else {
-                                            let signature = challenge_signature(&challenge[..36]);
-                                            if signature.as_ref() == &challenge[36..] {
-                                                hash = Some(
-                                                    digest(&SHA256, it.as_ref()).as_ref().to_vec(),
-                                                );
-                                            }
                                         }
                                     }
                                 }
