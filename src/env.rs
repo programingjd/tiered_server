@@ -72,6 +72,7 @@ pub enum ConfigurationKey {
     EmailOneTimeLoginTitle,
     EmailOneTimeLoginTemplate,
     AdminUsers,
+    Other { variable_name: &'static str },
 }
 
 impl ConfigurationKey {
@@ -108,6 +109,7 @@ impl ConfigurationKey {
             Self::EmailOneTimeLoginTitle => "EMAIL_ONE_TIME_LOGIN_TITLE",
             Self::EmailOneTimeLoginTemplate => "EMAIL_ONE_TIME_LOGIN_TEMPLATE",
             Self::AdminUsers => "ADMIN_USERS",
+            Self::Other { variable_name } => variable_name,
         }
     }
 }

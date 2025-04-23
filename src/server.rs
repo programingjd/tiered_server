@@ -1,6 +1,6 @@
 extern crate rustls as extern_rustls;
 
-use crate::api::handle_api;
+use crate::api::{Extension, handle_api};
 use crate::download::download;
 use crate::env::ConfigurationKey::{
     BindAddress, DomainApex, DomainTitle, StaticGithubBranch, StaticGithubRepository,
@@ -81,7 +81,7 @@ impl ResolvesServerCert for LocalhostResolver {
     }
 }
 
-pub async fn serve() {
+pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
     #[cfg(debug_assertions)]
     tracing_subscriber::fmt()
         .compact()
@@ -231,7 +231,7 @@ pub async fn serve() {
                                         else if api_path_prefix.matches(path) {
                                             let handler: Arc<Handler> = handler.get_ref().clone();
                                             Ok::<_, Infallible>(
-                                                handle_api(request, &store_cache, handler, server_name).await,
+                                                handle_api(request, &store_cache, handler, server_name, extension).await,
                                             )
                                         } else {
                                             let handler: Arc<Handler> = handler.get_ref().clone();
