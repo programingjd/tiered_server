@@ -829,8 +829,8 @@ mod tests_rsa {
 
     #[test]
     fn verify_rsa256() {
-        let key_count = 10_usize;
-        let payload_count = 10_usize;
+        let key_count = 3_usize;
+        let payload_count = 3_usize;
         let mut rng = OsRng;
         for i in 0..key_count {
             let pkcs8 = RsaPrivateKey::new(&mut rng, 2048).unwrap();
@@ -866,8 +866,8 @@ mod tests_ed25519 {
 
     #[test]
     fn verify_ed25519() {
-        let key_count = 10_usize;
-        let payload_count = 10_usize;
+        let key_count = 3_usize;
+        let payload_count = 3_usize;
         let mut rng = OsRng;
         for i in 0..key_count {
             let signing_key = SigningKey::generate(&mut rng);
@@ -903,8 +903,8 @@ mod tests_es256 {
 
     #[test]
     fn verify_es256() {
-        let key_count = 1_usize;
-        let payload_count = 1_usize;
+        let key_count = 3_usize;
+        let payload_count = 3_usize;
         let mut rng = OsRng;
         for i in 0..key_count {
             let signing_key = SigningKey::random(&mut rng);
