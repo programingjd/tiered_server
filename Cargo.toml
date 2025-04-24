@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies.zip_static_handler]
-version = "0.15"
+version = "0.16"
 features = ["hyper"]
 
 [dependencies.firewall]
