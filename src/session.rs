@@ -51,12 +51,12 @@ pub struct Session {
 impl Session {
     pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
         [
-            HeaderValue::from_str(&format!(
+            HeaderValue::try_from(format!(
                 "sid={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
                 self.id
             ))
             .unwrap(),
-            HeaderValue::from_str(&format!(
+            HeaderValue::try_from(format!(
                 "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
                 self.timestamp + SESSION_MAX_AGE
             ))
