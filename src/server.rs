@@ -82,31 +82,6 @@ impl ResolvesServerCert for LocalhostResolver {
 }
 
 pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
-    #[cfg(debug_assertions)]
-    tracing_subscriber::fmt()
-        .compact()
-        .with_ansi(true)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .without_time()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(
-            "tiered_server=debug,zip_static_handler=info,hyper=info",
-        ))
-        .init();
-    #[cfg(not(debug_assertions))]
-    tracing_subscriber::fmt()
-        .compact()
-        .with_ansi(true)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .without_time()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(
-            "tiered_server=warn,zip_static_handler=info,hyper=info",
-        ))
-        .init();
-
     let cloudflare_ip_ranges = fetch_cloudflare_ip_ranges()
         .await
         .expect("failed to fetch cloudflare ip ranges");
