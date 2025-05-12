@@ -67,7 +67,7 @@ pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
     });
 }
 
-pub(crate) async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
+pub async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()

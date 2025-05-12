@@ -16,7 +16,7 @@ use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
@@ -78,6 +78,8 @@ pub struct User {
     pub date_of_birth: u32,
     #[serde(skip_serializing_if = "is_default")]
     pub admin: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Value>,
 }
 
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
@@ -210,6 +212,7 @@ impl User {
             first_name_norm,
             date_of_birth,
             admin,
+            metadata: None,
         };
         Snapshot::set(key.as_str(), &user).await?;
         Some(user)
