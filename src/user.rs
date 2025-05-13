@@ -2,7 +2,8 @@ use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
 use crate::headers::{GET_POST_PUT, JSON};
 use crate::norm::{
-    normalize_email, normalize_first_name, normalize_last_name, normalize_phone_number,
+    DEFAULT_COUNTRY_CODE, normalize_email, normalize_first_name, normalize_last_name,
+    normalize_phone_number,
 };
 use crate::otp::Otp;
 use crate::session::{SESSION_MAX_AGE, SessionState};
@@ -54,7 +55,7 @@ pub(crate) struct Sms {
 impl From<String> for Sms {
     fn from(value: String) -> Self {
         Self {
-            normalized_number: normalize_phone_number(&value),
+            normalized_number: normalize_phone_number(&value, *DEFAULT_COUNTRY_CODE),
             number: value,
         }
     }
@@ -414,7 +415,7 @@ pub(crate) async fn handle_user(
                                 _ => None
                             },
                             "session_expiration_timestamp": session.timestamp + SESSION_MAX_AGE,
-                            "session_from_passkey": session.passkey_id.is_some(),  
+                            "session_from_passkey": session.passkey_id.is_some(),
                             "admin": user.admin,
                         })).unwrap(),
                     )))

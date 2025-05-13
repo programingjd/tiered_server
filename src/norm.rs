@@ -1,8 +1,17 @@
+use crate::env::ConfigurationKey::DefaultCountryCode;
+use crate::env::secret_value;
 use std::borrow::Cow;
+use std::sync::LazyLock;
 use unicode_general_category::{GeneralCategory, get_general_category};
 use unicode_normalization::UnicodeNormalization;
 
-pub(crate) fn normalize_email(email: &str) -> String {
+pub static DEFAULT_COUNTRY_CODE: LazyLock<u16> = LazyLock::new(|| {
+    secret_value(DefaultCountryCode)
+        .and_then(|it| it.parse::<u16>().ok())
+        .unwrap_or(33)
+});
+
+pub fn normalize_email(email: &str) -> String {
     let trim = email.trim();
     let mut iter = trim.split('@');
     if let Some(local) = iter.next() {
@@ -39,15 +48,71 @@ pub(crate) fn normalize_email(email: &str) -> String {
     trim.to_string()
 }
 
-pub(crate) fn normalize_phone_number(_number: &str) -> String {
-    todo!()
+pub fn normalize_phone_number(number: &str, default_country_code: u16) -> String {
+    // https://en.wikipedia.org/wiki/List_of_telephone_country_codes
+    // trim leading 0 after country code except for italy (39)
+    let trimmed_number = number.trim();
+    if !trimmed_number.starts_with('+') {
+        let filtered_number = trimmed_number
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect::<String>();
+        if filtered_number.starts_with('0') && default_country_code != 39 {
+            format!("+{default_country_code}{}", &filtered_number[1..])
+        } else {
+            format!("+{default_country_code}{}", filtered_number)
+        }
+    } else {
+        let filtered_number = trimmed_number
+            .chars()
+            .enumerate()
+            .filter_map(|(i, c)| {
+                if i == 0 || c.is_ascii_digit() {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .collect::<String>();
+        if filtered_number.len() < 10 || filtered_number.starts_with('0') {
+            // invalid number
+            filtered_number
+        } else {
+            let first_country_code_digit = filtered_number[1..2].parse::<u8>().unwrap();
+            if first_country_code_digit == 1 || first_country_code_digit == 7 {
+                return filtered_number;
+            }
+            let first_two_country_code_digits = &filtered_number[1..3].parse::<u8>().unwrap();
+            match first_two_country_code_digits {
+                20 | 27 | 30 | 31 | 32 | 33 | 34 | 36 | 40 | 41 | 43 | 44 | 45 | 46 | 47 | 48
+                | 49 | 51 | 52 | 53 | 54 | 55 | 56 | 57 | 58 | 60 | 61 | 62 | 63 | 64 | 65 | 66
+                | 70 | 71 | 72 | 73 | 74 | 75 | 76 | 77 | 78 | 79 | 81 | 82 | 84 | 86 | 90 | 91
+                | 92 | 93 | 94 | 95 | 98 => {
+                    if &filtered_number[3..4] == "0" {
+                        format!("{}{}", &filtered_number[0..3], &filtered_number[4..])
+                    } else {
+                        filtered_number
+                    }
+                }
+                21 | 22 | 23 | 24 | 25 | 26 | 29 | 35 | 37 | 38 | 42 | 50 | 59 | 67 | 68 | 69
+                | 80 | 85 | 87 | 88 | 96 | 97 | 99 => {
+                    if &filtered_number[4..5] == "0" {
+                        format!("{}{}", &filtered_number[0..4], &filtered_number[5..])
+                    } else {
+                        filtered_number
+                    }
+                }
+                39 | _ => filtered_number,
+            }
+        }
+    }
 }
 
-pub(crate) fn normalize_first_name(first_name: &str) -> String {
+pub fn normalize_first_name(first_name: &str) -> String {
     normalize_name(first_name)
 }
 
-pub(crate) fn normalize_last_name(last_name: &str) -> String {
+pub fn normalize_last_name(last_name: &str) -> String {
     normalize_name(last_name)
 }
 
@@ -82,5 +147,31 @@ mod tests {
     #[test]
     fn test_normalize_name() {
         assert_eq!("ecalu", normalize_name("Éçàlü "));
+    }
+
+    #[test]
+    fn test_normalize_phone_number() {
+        assert_eq!(
+            "+1234567890",
+            normalize_phone_number("+1 (234) 567-890", 33)
+        );
+        assert_eq!("+33601234567", normalize_phone_number("06 01 23 45 67", 33));
+        assert_eq!("+33601234567", normalize_phone_number("+330601234567", 33));
+        assert_eq!(
+            "+33601234567",
+            normalize_phone_number("+33 (0)6 01 23 45 67", 33)
+        );
+        assert_eq!(
+            "+33601234567",
+            normalize_phone_number("+33 6 01 23 45 67", 33)
+        );
+        assert_eq!(
+            "+35541234567",
+            normalize_phone_number("+355 041234567", 355)
+        );
+        assert_eq!(
+            "+390612345678",
+            normalize_phone_number("+39 06 12345678", 39)
+        );
     }
 }
