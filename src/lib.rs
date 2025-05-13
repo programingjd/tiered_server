@@ -7,7 +7,7 @@ mod firewalls;
 pub mod headers;
 mod hex;
 mod iter;
-mod norm;
+pub mod norm;
 mod otp;
 pub mod prefix;
 mod push_webhook;
