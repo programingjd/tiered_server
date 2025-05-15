@@ -131,6 +131,51 @@ fn normalize_name(name: &str) -> String {
         .to_lowercase()
 }
 
+pub fn normalize_city(city_name: &str) -> String {
+    let mut normalized = city_name
+        .nfkd()
+        .flat_map(|it| match get_general_category(it) {
+            GeneralCategory::UppercaseLetter | GeneralCategory::LowercaseLetter => Some(it),
+            GeneralCategory::OtherPunctuation if it == '\'' => Some('\''),
+            GeneralCategory::FinalPunctuation if it == '’' => Some('\''),
+            GeneralCategory::SpaceSeparator => Some(' '),
+            GeneralCategory::DashPunctuation => Some(' '),
+            _ => None,
+        })
+        .collect::<String>()
+        .trim()
+        .to_lowercase();
+    let len = normalized.len();
+    let mut start = 0usize;
+    while let Some(mut pos) = (&normalized[start..]).find("saint") {
+        pos += start;
+        start = pos + 2;
+        if pos > 0 && &normalized[pos - 1..pos] != " " {
+            continue;
+        }
+        let remaining = len - pos - 5;
+        if remaining == 0 {
+            normalized.replace_range(pos.., "st");
+        } else if remaining == 1 {
+            match &normalized[len - 1..] {
+                "e" | " " => normalized.replace_range(pos..pos + 5, "st"),
+                _ => {}
+            }
+        } else {
+            match &normalized[pos + 5..pos + 6] {
+                " " => normalized.replace_range(pos..pos + 5, "st"),
+                "e" => {
+                    if &normalized[pos + 6..pos + 7] == " " {
+                        normalized.replace_range(pos..pos + 5, "st")
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    normalized
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +218,15 @@ mod tests {
             "+390612345678",
             normalize_phone_number("+39 06 12345678", 39)
         );
+    }
+
+    #[test]
+    fn test_normalize_city() {
+        assert_eq!("st denis", normalize_city("Saint-Denis"));
+        assert_eq!("grand st denis", normalize_city("Grand Saint-Denis"));
+        assert_eq!("le mont st michel", normalize_city("Le Mont Saint Michel"));
+        assert_eq!("ste marie", normalize_city("Sainte-Marie"));
+        assert_eq!("terre ste", normalize_city("Terre-Sainte"));
+        assert_eq!("tousaint", normalize_city("Tousaint"));
     }
 }
