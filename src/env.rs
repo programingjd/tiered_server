@@ -78,7 +78,38 @@ pub enum ConfigurationKey {
 
 impl ConfigurationKey {
     fn all() -> impl Iterator<Item = Self> {
-        [Self::BindAddress].into_iter()
+        [
+            Self::DomainApex,
+            Self::DomainTitle,
+            Self::BindAddress,
+            Self::StaticGithubUser,
+            Self::StaticGithubRepository,
+            Self::StaticGithubBranch,
+            Self::StaticGithubWebhookToken,
+            Self::S3Region,
+            Self::S3Endpoint,
+            Self::S3Bucket,
+            Self::S3AccessKey,
+            Self::S3SecretKey,
+            Self::StoreEncryptionKey,
+            Self::OtpSigningKey,
+            Self::ChallengeSigningKey,
+            Self::ApiPathPrefix,
+            Self::UserPathPrefix,
+            Self::LoginPath,
+            Self::ValidationTotpSecret,
+            Self::DefaultCountryCode,
+            Self::EmailApiEndpoint,
+            Self::EmailApiAuthHeader,
+            Self::EmailApiAuthToken,
+            Self::EmailApiMethod,
+            Self::EmailApiRequestContentType,
+            Self::EmailSendAddress,
+            Self::EmailOneTimeLoginTitle,
+            Self::EmailOneTimeLoginTemplate,
+            Self::AdminUsers,
+        ]
+        .into_iter()
     }
     fn name(&self) -> &'static str {
         match self {
