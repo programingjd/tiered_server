@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.85"
 
 [dependencies.zip_static_handler]
-version = "0.16"
+version = "0.18"
 features = ["hyper"]
 
 [dependencies.firewall]
@@ -96,7 +96,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.9"
+version = "2.10"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -111,7 +111,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.44"
+version = "1.45"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
