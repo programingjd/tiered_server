@@ -102,7 +102,8 @@ pub fn normalize_phone_number(number: &str, default_country_code: u16) -> String
                         filtered_number
                     }
                 }
-                39 | _ => filtered_number,
+                39 => filtered_number,
+                _ => filtered_number,
             }
         }
     }
@@ -147,7 +148,7 @@ pub fn normalize_city(city_name: &str) -> String {
         .to_lowercase();
     let len = normalized.len();
     let mut start = 0usize;
-    while let Some(mut pos) = (&normalized[start..]).find("saint") {
+    while let Some(mut pos) = normalized[start..].find("saint") {
         pos += start;
         start = pos + 2;
         if pos > 0 && &normalized[pos - 1..pos] != " " {

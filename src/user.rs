@@ -17,7 +17,7 @@ use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
