@@ -516,137 +516,146 @@ pub(crate) async fn handle_auth(
         }
         debug!("403 https://{server_name}/api/auth/credentials");
     } else if path == "/credential_creation_options" {
-        if let Some(user) = user {
-            if method != Method::POST {
-                let mut response = Response::builder();
-                let headers = response.headers_mut().unwrap();
-                headers.insert(ALLOW, POST);
-                debug!("405 https://{server_name}/api/auth/credential_creation_options");
-                return response
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap();
-            }
-            if let Some(challenge) = request
-                .collect()
-                .await
-                .map(|it| it.to_bytes())
-                .ok()
-                .and_then(|body| serde_json::from_slice::<ChallengeMetadata>(body.as_ref()).ok())
-                .and_then(|metadata| new_challenge(&metadata))
-            {
-                let keys = store_cache
-                    .get_ref()
-                    .list::<PassKey>(&format!("pk/{}/", user.id))
-                    .map(|(_, key)| Credentials::from_id(key.id))
-                    .collect::<Vec<_>>();
-                let credential_creation = CredentialCreationOptions {
-                    challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
-                    exclude_credentials: keys,
-                    pub_key_cred_params: vec![
-                        PubKeyCredParams::ed25519(),
-                        PubKeyCredParams::es256(),
-                        PubKeyCredParams::rs256(),
-                    ],
-                    rp: Rp::default(),
-                    user: UserId::from(&user),
-                };
-                debug!("200 https://{server_name}/api/auth/credential_creation_options");
-                return Response::builder()
-                    .status(StatusCode::OK)
-                    .header(CONTENT_TYPE, JSON)
-                    .body(Either::Left(Full::from(
-                        serde_json::to_vec(&credential_creation).unwrap(),
-                    )))
-                    .unwrap();
-            }
+        if session.is_none() {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        if method != Method::POST {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, POST);
+            debug!("405 https://{server_name}/api/auth/credential_creation_options");
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        let user = user.unwrap();
+        if let Some(challenge) = request
+            .collect()
+            .await
+            .map(|it| it.to_bytes())
+            .ok()
+            .and_then(|body| serde_json::from_slice::<ChallengeMetadata>(body.as_ref()).ok())
+            .and_then(|metadata| new_challenge(&metadata))
+        {
+            let keys = store_cache
+                .get_ref()
+                .list::<PassKey>(&format!("pk/{}/", user.id))
+                .map(|(_, key)| Credentials::from_id(key.id))
+                .collect::<Vec<_>>();
+            let credential_creation = CredentialCreationOptions {
+                challenge: URL_SAFE_NO_PAD.encode_to_string(challenge),
+                exclude_credentials: keys,
+                pub_key_cred_params: vec![
+                    PubKeyCredParams::ed25519(),
+                    PubKeyCredParams::es256(),
+                    PubKeyCredParams::rs256(),
+                ],
+                rp: Rp::default(),
+                user: UserId::from(&user),
+            };
+            debug!("200 https://{server_name}/api/auth/credential_creation_options");
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, JSON)
+                .body(Either::Left(Full::from(
+                    serde_json::to_vec(&credential_creation).unwrap(),
+                )))
+                .unwrap();
         }
         debug!("403 https://{server_name}/api/auth/credential_creation_options");
     } else if path == "/record_credential" {
-        if let Some(user) = user {
-            if request.method() != Method::POST {
-                let mut response = Response::builder();
-                let headers = response.headers_mut().unwrap();
-                headers.insert(ALLOW, POST);
-                debug!("405 https://{server_name}/api/auth/record_credential");
-                return response
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap();
-            }
-            if let Some(boundary) = request
-                .headers()
-                .get(CONTENT_TYPE)
-                .and_then(|it| it.to_str().ok())
-                .and_then(|it| parse_boundary(it).ok())
-            {
-                let mut multipart = Multipart::with_constraints(
-                    request.into_body().into_data_stream(),
-                    boundary,
-                    Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
-                );
-                let mut i = None;
-                let mut a = 0_i16;
-                let mut k = vec![];
-                let mut m = None;
-                let mut challenge_verified = false;
-                while let Ok(Some(field)) = multipart.next_field().await {
-                    match field.name() {
-                        Some("i") => {
-                            if let Ok(it) = field.bytes().await {
-                                i = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
+        if session.is_none() {
+            return Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        if request.method() != Method::POST {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, POST);
+            debug!("405 https://{server_name}/api/auth/record_credential");
+            return response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        let user = user.unwrap();
+        if let Some(boundary) = request
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|it| it.to_str().ok())
+            .and_then(|it| parse_boundary(it).ok())
+        {
+            let mut multipart = Multipart::with_constraints(
+                request.into_body().into_data_stream(),
+                boundary,
+                Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            );
+            let mut i = None;
+            let mut a = 0_i16;
+            let mut k = vec![];
+            let mut m = None;
+            let mut challenge_verified = false;
+            while let Ok(Some(field)) = multipart.next_field().await {
+                match field.name() {
+                    Some("i") => {
+                        if let Ok(it) = field.bytes().await {
+                            i = Some(URL_SAFE_NO_PAD.encode_to_string(it.as_ref()));
+                        }
+                    }
+                    Some("a") => {
+                        if let Ok(it) = field.text().await {
+                            if let Ok(it) = it.parse::<i16>() {
+                                a = it;
                             }
                         }
-                        Some("a") => {
-                            if let Ok(it) = field.text().await {
-                                if let Ok(it) = it.parse::<i16>() {
-                                    a = it;
-                                }
+                    }
+                    Some("k") => {
+                        if let Ok(it) = field.bytes().await {
+                            k.extend(it.as_ref().iter());
+                        }
+                    }
+                    Some("m") => {
+                        if let Ok(it) = field.text().await {
+                            if let Ok(it) = serde_json::from_str::<ChallengeMetadata>(&it) {
+                                m = Some(it)
                             }
                         }
-                        Some("k") => {
-                            if let Ok(it) = field.bytes().await {
-                                k.extend(it.as_ref().iter());
-                            }
-                        }
-                        Some("m") => {
-                            if let Ok(it) = field.text().await {
-                                if let Ok(it) = serde_json::from_str::<ChallengeMetadata>(&it) {
-                                    m = Some(it)
-                                }
-                            }
-                        }
-                        Some("c") => {
-                            if let Ok(it) = field.bytes().await {
-                                if let Ok(client_data) =
-                                    serde_json::from_slice::<ClientData>(it.as_ref())
+                    }
+                    Some("c") => {
+                        if let Ok(it) = field.bytes().await {
+                            if let Ok(client_data) =
+                                serde_json::from_slice::<ClientData>(it.as_ref())
+                            {
+                                if let Ok(challenge) =
+                                    URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
                                 {
-                                    if let Ok(challenge) =
-                                        URL_SAFE_NO_PAD.decode_to_vec(client_data.challenge)
-                                    {
-                                        if let Some(ref metadata) = m {
-                                            challenge_verified =
-                                                verify_challenge(&challenge, metadata)
-                                        }
+                                    if let Some(ref metadata) = m {
+                                        challenge_verified = verify_challenge(&challenge, metadata)
                                     }
                                 }
                             }
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
-                if i.is_some() && challenge_verified {
-                    if let Some(passkey) = PassKey::new(i.unwrap(), a, k) {
-                        if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id), &passkey)
-                            .await
-                            .is_some()
-                        {
-                            debug!("200 https://{server_name}/api/auth/record_credential");
-                            return Response::builder()
-                                .status(StatusCode::OK)
-                                .body(Either::Right(Empty::new()))
-                                .unwrap();
-                        }
+            }
+            if i.is_some() && challenge_verified {
+                if let Some(passkey) = PassKey::new(i.unwrap(), a, k) {
+                    if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id), &passkey)
+                        .await
+                        .is_some()
+                    {
+                        debug!("200 https://{server_name}/api/auth/record_credential");
+                        return Response::builder()
+                            .status(StatusCode::OK)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
                     }
                 }
             }
