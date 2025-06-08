@@ -20,6 +20,7 @@ use pinboard::NonEmptyPinboard;
 use ring::hmac::{HMAC_SHA256, Key, sign};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
@@ -46,12 +47,6 @@ pub struct Otp {
     id: String,
     user_id: String,
     timestamp: u32,
-}
-
-#[derive(Serialize)]
-struct NewCredentialsContext<'a> {
-    user: &'a User,
-    link_url: &'a str,
 }
 
 impl Otp {
@@ -104,10 +99,10 @@ impl Otp {
                     }
                 }
                 .and_then(|template| {
-                    template.render(NewCredentialsContext {
-                        user,
-                        link_url: link_url.as_str(),
-                    })
+                    template.render(json!({
+                        "user": user,
+                        "link_url": link_url.as_str(),
+                    }))
                 })
             }
             Err(_) => {

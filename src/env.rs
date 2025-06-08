@@ -72,6 +72,8 @@ pub enum ConfigurationKey {
     EmailSendAddress,
     EmailOneTimeLoginTitle,
     EmailOneTimeLoginTemplate,
+    EmailAccountCreatedTitle,
+    EmailAccountCreatedTemplate,
     AdminUsers,
     Other { variable_name: &'static str },
 }
@@ -107,6 +109,8 @@ impl ConfigurationKey {
             Self::EmailSendAddress,
             Self::EmailOneTimeLoginTitle,
             Self::EmailOneTimeLoginTemplate,
+            Self::EmailAccountCreatedTitle,
+            Self::EmailAccountCreatedTemplate,
             Self::AdminUsers,
         ]
         .into_iter()
@@ -141,6 +145,8 @@ impl ConfigurationKey {
             Self::EmailSendAddress => "EMAIL_SEND_ADDRESS",
             Self::EmailOneTimeLoginTitle => "EMAIL_ONE_TIME_LOGIN_TITLE",
             Self::EmailOneTimeLoginTemplate => "EMAIL_ONE_TIME_LOGIN_TEMPLATE",
+            Self::EmailAccountCreatedTitle => "EMAIL_ACCOUNT_CREATED_TITLE",
+            Self::EmailAccountCreatedTemplate => "EMAIL_ACCOUNT_CREATED_TEMPLATE",
             Self::AdminUsers => "ADMIN_USERS",
             Self::Other { variable_name } => variable_name,
         }

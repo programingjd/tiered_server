@@ -32,7 +32,7 @@ pub(crate) async fn handle_api<Ext: Extension + Send + Sync>(
     } else if path == "/otp" || path.starts_with("/otp/") {
         return handle_otp(request, store_cache, handler, server_name).await;
     } else if path == "/user" || path.starts_with("/user/") {
-        return handle_user(request, store_cache, server_name).await;
+        return handle_user(request, store_cache, handler, server_name).await;
     }
     if let Some(response) = extension
         .handle_api_extension(request, store_cache, handler, server_name)

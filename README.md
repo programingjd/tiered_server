@@ -159,43 +159,40 @@ sec/{user_id}/auth -> {rate limiting counters}
 ### Restricted access to user-scoped pages
 
 ```mermaid
-graph TD;
-  UserLandingPageRequest(("<b>User<br>landing page<br>request</b>"))
-  ProtectedPageRequest(("<b>Protected page<br>request</b>"))
-  LoginPageRequest(("<b>Login page<br>request</b>"))
-  
-  ProtectedPageRequest-->QueryCookie1["The server checks if<br>the login cookie exists"]
-  QueryCookie1-->|Present|CheckSessionValidity1["The server checks<br>the session validity"]
-  QueryCookie1-->|Absent|LoginPageRedirect["The server redirects<br>to the login page"]
-  CheckSessionValidity1-->|Valid|ProtectedPageResponse(("<b>Protected page<b>"))
-  CheckSessionValidity1-->|Expired|LoginPageRedirect
-
-  UserLandingPageRequest-->QueryCookie2["The server checks<br>the session cookie"]
-  QueryCookie2-->|Absent|LoginPageRedirect
-  QueryCookie2-->|Present|CheckSessionValidity2["The server checks<br>the session validity"]
-  CheckSessionValidity2-->|Expired|LoginPageRedirect
-  CheckSessionValidity2-->|Valid|QueryExistingPasskey2["The page asks<br>the server if<br>the user has<br>a passkey"]
-  QueryExistingPasskey2-->|No|NewPasskeyPrompt["The page asks<br>the user to<br>create a new passkey"]
-  QueryExistingPasskey2-->|Yes|UserLandingPageResponse(("<b>User landing page<b>"))
-  NewPasskeyPrompt-->|Success|NewPasskeyStore["The server stores<br>the new passkey"]
-  NewPasskeyPrompt-->UserLandingPageResponse
-
-  LoginPageRequest-->QueryPasskey["The page asks<br>for a passkey<br>(for that user<br>if available)"]
-  QueryPasskey-->|Success|SessionCookieUpdate["The server updates<br>the session cookie"]
-  SessionCookieUpdate-->UserLandingPageRedirect["The page redirects<br>to the user landing page"]
-  QueryPasskey-->|Failure|QueryCookie3["The page checks if<br>the login cookie exists"]
-  QueryCookie3-->|Present|OtpPrompt["The page provides<br>an option to email<br>a one-time login link"]
-  QueryCookie3-->|Absent|UserForm["The page asks<br>the user for<br>email, name and dob"]
-  UserForm-->|User exists|OtpPrompt
-  OtpPrompt-->EmailOtp["The server<br>sends an email<br>with an OTP link"]
-  EmailOtp-->|Link|NewSession["The server creates<br>a new session<br>for the user"]
-  NewSession-->UserLandingPageRedirect
-  UserForm-->|New user|UserModeration["The server saves<br>the user creation request"]
-  UserModeration-->|Accepted|UserCreation["The server creates<br>the new user"]
-  UserCreation-->EmailOtp
-  
-  UserLandingPageRedirect-->UserLandingPageRequest
-  LoginPageRedirect-->LoginPageRequest
+graph TD
+;
+    UserLandingPageRequest(("<b>User<br>landing page<br>request</b>"))
+    ProtectedPageRequest(("<b>Protected page<br>request</b>"))
+    LoginPageRequest(("<b>Login page<br>request</b>"))
+    ProtectedPageRequest --> QueryCookie1["The server checks if<br>the login cookie exists"]
+    QueryCookie1 -->|Present| CheckSessionValidity1["The server checks<br>the session validity"]
+    QueryCookie1 -->|Absent| LoginPageRedirect["The server redirects<br>to the login page"]
+    CheckSessionValidity1 -->|Valid| ProtectedPageResponse(("<b>Protected page<b>"))
+    CheckSessionValidity1 -->|Expired| LoginPageRedirect
+    UserLandingPageRequest --> QueryCookie2["The server checks<br>the session cookie"]
+    QueryCookie2 -->|Absent| LoginPageRedirect
+    QueryCookie2 -->|Present| CheckSessionValidity2["The server checks<br>the session validity"]
+    CheckSessionValidity2 -->|Expired| LoginPageRedirect
+    CheckSessionValidity2 -->|Valid| QueryExistingPasskey2["The page asks<br>the server if<br>the user has<br>a passkey"]
+    QueryExistingPasskey2 -->|No| NewPasskeyPrompt["The page asks<br>the user to<br>create a new passkey"]
+    QueryExistingPasskey2 -->|Yes| UserLandingPageResponse(("<b>User landing page<b>"))
+    NewPasskeyPrompt -->|Success| NewPasskeyStore["The server stores<br>the new passkey"]
+    NewPasskeyPrompt --> UserLandingPageResponse
+    LoginPageRequest --> QueryPasskey["The page asks<br>for a passkey<br>(for that user<br>if available)"]
+    QueryPasskey -->|Success| SessionCookieUpdate["The server updates<br>the session cookie"]
+    SessionCookieUpdate --> UserLandingPageRedirect["The page redirects<br>to the user landing page"]
+    QueryPasskey -->|Failure| QueryCookie3["The page checks if<br>the login cookie exists"]
+    QueryCookie3 -->|Present| OtpPrompt["The page provides<br>an option to email<br>a one-time login link"]
+    QueryCookie3 -->|Absent| UserForm["The page asks<br>the user for<br>email, name and dob"]
+    UserForm -->|User exists| OtpPrompt
+    OtpPrompt --> EmailOtp["The server<br>sends an email<br>with an OTP link"]
+    EmailOtp -->|Link| NewSession["The server creates<br>a new session<br>for the user"]
+    NewSession --> UserLandingPageRedirect
+    UserForm -->|New user| UserModeration["The server saves<br>the user creation request"]
+    UserModeration -->|Accepted| UserCreation["The server creates<br>the new user"]
+    UserCreation --> EmailOtp
+    UserLandingPageRedirect --> UserLandingPageRequest
+    LoginPageRedirect --> LoginPageRequest
 ```
 
 Two cookies are used, one for the server and one for javascript:
@@ -304,8 +301,14 @@ The endpoints are under the api prefix.
   One-time login link<br>
   Validates the link, creates a new session for the user and redirects to the user landing page.
 
-- `POST` `{api}/opt`<br>
+- `POST` `{api}/otp`<br>
   Requests a new email with a one-time login link.
 
 - `PUT` `{api}/user`<br>
   Submits a new account request.
+
+- `GET` `{api}/user/admin/reg`<br>
+  Lists all the pending user registrations.
+
+- `POST` `{api}/user/admin/reg`<br>
+  Accepts a user registration.

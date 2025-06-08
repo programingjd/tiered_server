@@ -1,4 +1,7 @@
-use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
+use crate::email::Email as SendEmail;
+use crate::env::ConfigurationKey::{
+    AdminUsers, EmailAccountCreatedTemplate, EmailAccountCreatedTitle, ValidationTotpSecret,
+};
 use crate::env::secret_value;
 use crate::headers::{GET_POST_PUT, JSON};
 use crate::norm::{
@@ -6,22 +9,26 @@ use crate::norm::{
     normalize_phone_number,
 };
 use crate::otp::Otp;
-use crate::session::{SESSION_MAX_AGE, SessionState};
+use crate::prefix::API_PATH_PREFIX;
+use crate::server::DOMAIN_APEX;
+use crate::session::{LOGIN_PATH, SESSION_MAX_AGE, SessionState};
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
+use minijinja::Environment;
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use zip_static_handler::handler::Handler;
 
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
@@ -30,6 +37,13 @@ const SECS_PER_YEAR: u64 = 31_556_952;
 //noinspection SpellCheckingInspection
 static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(ValidationTotpSecret));
+
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_CREATED_TITLE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailAccountCreatedTitle));
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_CREATED_TEMPLATE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailAccountCreatedTemplate));
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Email {
@@ -137,6 +151,7 @@ pub(crate) async fn ensure_admin_users_exist(
             }
         }) {
             info!("new admin account: {email} {last_name} {first_name}");
+            let server_name = DOMAIN_APEX.to_string();
             if let Some(user) = User::create(
                 email.trim().to_string(),
                 None,
@@ -147,6 +162,9 @@ pub(crate) async fn ensure_admin_users_exist(
                 date_of_birth,
                 true,
                 false,
+                true,
+                &handler.clone(),
+                &Arc::new(server_name),
                 store_cache,
             )
             .await
@@ -176,6 +194,9 @@ impl User {
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
         needs_validation: bool,
+        skip_notification: bool,
+        handler: &Arc<Handler>,
+        server_name: &Arc<String>,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
@@ -213,10 +234,91 @@ impl User {
             first_name_norm,
             date_of_birth,
             admin,
-            metadata: None,
+            metadata: if needs_validation {
+                Some(json!({"timestamp": timestamp}))
+            } else {
+                None
+            },
         };
         Snapshot::set(key.as_str(), &user).await?;
+        if !needs_validation && !skip_notification {
+            user.notify(handler, server_name).await?;
+        }
         Some(user)
+    }
+
+    async fn notify(&self, handler: &Arc<Handler>, server_name: &Arc<String>) -> Option<()> {
+        let email = match &self.identification {
+            IdentificationMethod::Email(email) => email.address.as_str(),
+            _ => return None,
+        };
+        let link_url = format!("https://{server_name}{}", *LOGIN_PATH,);
+        let subject = (*EMAIL_ACCOUNT_CREATED_TITLE)?;
+        let template_name = (*EMAIL_ACCOUNT_CREATED_TEMPLATE)?;
+        let content = match handler
+            .entry(&format!(
+                "{}{template_name}",
+                API_PATH_PREFIX.with_trailing_slash
+            ))
+            .and_then(|it| it.content.clone())
+        {
+            Some(content) => content,
+            None => {
+                warn!(
+                    "missing email template: {}{template_name}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
+        let html_body = match from_utf8(content.as_ref()) {
+            Ok(jinja) => {
+                let mut environment = Environment::new();
+                match environment.add_template("new_credentials", jinja) {
+                    Ok(()) => environment.get_template("new_credentials"),
+                    Err(err) => {
+                        warn!(
+                            "invalid template: {}{template_name}:\n{err:?}",
+                            API_PATH_PREFIX.with_trailing_slash
+                        );
+                        return None;
+                    }
+                }
+                .and_then(|template| {
+                    template.render(json!({
+                        "user": self,
+                        "link_url": link_url.as_str(),
+                    }))
+                })
+            }
+            Err(_) => {
+                warn!(
+                    "invalid template: {}{template_name}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
+        let html_body = match html_body {
+            Ok(html_body) => html_body,
+            Err(err) => {
+                warn!(
+                    "invalid template: {}{template_name}:\n{err:?}",
+                    API_PATH_PREFIX.with_trailing_slash
+                );
+                return None;
+            }
+        };
+        #[cfg(debug_assertions)]
+        let send = false;
+        #[cfg(not(debug_assertions))]
+        let send = true;
+        if send {
+            SendEmail::send(email, subject, html_body.as_str()).await
+        } else {
+            println!("\x1b[34;49;4m{link_url}\x1b[0m");
+            Some(())
+        }
     }
 }
 
@@ -224,25 +326,140 @@ impl User {
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
     store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+    handler: Arc<Handler>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
-    if path == "/admin/reg/code" {
+    if let Some(path) = path.strip_prefix("/admin") {
         if let SessionState::Valid { user, .. } =
             SessionState::from_headers(request.headers(), store_cache).await
         {
             if user.admin {
-                if let Some(secret) = *VALIDATION_TOTP_SECRET {
-                    debug!("200 https://{server_name}/api/user/admin/reg/code");
+                if path == "/reg/code" {
+                    if let Some(secret) = *VALIDATION_TOTP_SECRET {
+                        debug!("200 https://{server_name}/api/user/admin/reg/code");
+                        return Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, TEXT)
+                            .body(Either::Left(Full::from(secret)))
+                            .unwrap();
+                    }
+                } else if path == "/reg" {
+                    if request.method() == Method::GET {
+                        #[derive(Serialize)]
+                        struct UserResponse {
+                            first_name: String,
+                            last_name: String,
+                            date_of_birth: u32,
+                            email: Option<String>,
+                            sms: Option<String>,
+                            #[serde(flatten, skip_serializing_if = "Option::is_none")]
+                            metadata: Option<Value>,
+                        }
+                        let users = store_cache
+                            .get_ref()
+                            .list::<User>("reg/")
+                            .map(|(_, user)| {
+                                let (email, sms) = match user.identification {
+                                    IdentificationMethod::Email(email) => {
+                                        (Some(email.normalized_address), None)
+                                    }
+                                    IdentificationMethod::Sms(sms) => {
+                                        (None, Some(sms.normalized_number))
+                                    }
+                                    _ => (None, None),
+                                };
+                                UserResponse {
+                                    first_name: user.first_name,
+                                    last_name: user.last_name,
+                                    date_of_birth: user.date_of_birth,
+                                    email,
+                                    sms,
+                                    metadata: user.metadata,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        return Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, JSON)
+                            .body(Either::Left(Full::from(
+                                serde_json::to_vec(&users).unwrap(),
+                            )))
+                            .unwrap();
+                    } else if request.method() != Method::POST {
+                        let mut response = Response::builder();
+                        let headers = response.headers_mut().unwrap();
+                        headers.insert(ALLOW, GET_POST_PUT);
+                        debug!("405 https://{server_name}/api/user");
+                        return response
+                            .status(StatusCode::METHOD_NOT_ALLOWED)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
+                    }
+                    if let Some(boundary) = request
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|it| it.to_str().ok())
+                        .and_then(|it| parse_boundary(it).ok())
+                    {
+                        let mut multipart = Multipart::with_constraints(
+                            request.into_body().into_data_stream(),
+                            boundary,
+                            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+                        );
+                        let mut user_id = None;
+                        let mut skip_notification = false;
+                        while let Ok(Some(field)) = multipart.next_field().await {
+                            match field.name() {
+                                Some("user_id") => {
+                                    if let Ok(it) = field.text().await {
+                                        user_id = Some(it);
+                                    }
+                                }
+                                Some("skip_notification") => {
+                                    if let Ok(it) = field.text().await {
+                                        if let Ok(b) = it.parse::<bool>() {
+                                            skip_notification = b;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if let Some(user_id) = user_id {
+                            let user = store_cache.get_ref().get::<User>(user_id.as_str());
+                            if let Some(mut user) = user {
+                                user.metadata = None;
+                                if Snapshot::set(format!("acc/{user_id}").as_str(), &user)
+                                    .await
+                                    .is_some()
+                                    && Snapshot::delete([format!("reg/{user_id}").as_str()].iter())
+                                        .await
+                                        .is_some()
+                                    && (skip_notification
+                                        || user
+                                            .notify(&handler.clone(), &server_name.clone())
+                                            .await
+                                            .is_some())
+                                {
+                                    debug!("202 https://{server_name}/api/user/admin/reg");
+                                    return Response::builder()
+                                        .status(StatusCode::ACCEPTED)
+                                        .body(Either::Right(Empty::new()))
+                                        .unwrap();
+                                }
+                            }
+                        }
+                    }
+                    debug!("400 https://{server_name}/api/user/admin/reg");
                     return Response::builder()
-                        .status(StatusCode::OK)
-                        .header(CONTENT_TYPE, TEXT)
-                        .body(Either::Left(Full::from(secret)))
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Either::Right(Empty::new()))
                         .unwrap();
                 }
             }
         }
-        debug!("403 /api/user/admin/reg/code");
+        debug!("403 /api/user/admin/{path}");
     } else if path == "/" || path.is_empty() {
         if request.method() == Method::PUT {
             if let Some(boundary) = request
@@ -372,12 +589,12 @@ pub(crate) async fn handle_user(
                             dob,
                             false,
                             needs_moderation,
+                            false,
+                            &handler.clone(),
+                            &server_name,
                             store_cache,
                         )
                         .await;
-                        if !needs_moderation {
-                            // TODO send email
-                        }
                     }
                     debug!("202 https://{server_name}/api/user");
                     return Response::builder()
@@ -397,12 +614,25 @@ pub(crate) async fn handle_user(
             if request.method() == Method::GET {
                 let mut response = Response::builder();
                 response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
-                debug!("200 https://{server_name}/api/user");
                 let (email, sms) = match user.identification {
                     IdentificationMethod::Email(email) => (Some(email.normalized_address), None),
                     IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
                     _ => (None, None),
                 };
+                #[derive(Serialize)]
+                struct UserResponse {
+                    first_name: String,
+                    last_name: String,
+                    date_of_birth: u32,
+                    email: Option<String>,
+                    sms: Option<String>,
+                    session_expiration_timestamp: u32,
+                    session_from_passkey: bool,
+                    admin: bool,
+                    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+                    metadata: Option<Value>,
+                }
+                debug!("200 https://{server_name}/api/user");
                 return Response::builder()
                     .status(StatusCode::OK)
                     .header(CONTENT_TYPE, JSON)
@@ -421,8 +651,6 @@ pub(crate) async fn handle_user(
                         .unwrap(),
                     )))
                     .unwrap();
-            } else if request.method() == Method::POST {
-                // TODO update user field
             } else {
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
@@ -440,18 +668,4 @@ pub(crate) async fn handle_user(
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))
         .unwrap()
-}
-
-#[derive(Serialize)]
-struct UserResponse {
-    first_name: String,
-    last_name: String,
-    date_of_birth: u32,
-    email: Option<String>,
-    sms: Option<String>,
-    session_expiration_timestamp: u32,
-    session_from_passkey: bool,
-    admin: bool,
-    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-    metadata: Option<Value>,
 }
