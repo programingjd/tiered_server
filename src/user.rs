@@ -398,26 +398,27 @@ pub(crate) async fn handle_user(
                 let mut response = Response::builder();
                 response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
                 debug!("200 https://{server_name}/api/user");
+                let (email, sms) = match user.identification {
+                    IdentificationMethod::Email(email) => (Some(email.normalized_address), None),
+                    IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
+                    _ => (None, None),
+                };
                 return Response::builder()
                     .status(StatusCode::OK)
                     .header(CONTENT_TYPE, JSON)
                     .body(Either::Left(Full::from(
-                        serde_json::to_vec(&json!({
-                            "first_name": user.first_name,
-                            "last_name": user.last_name,
-                            "date_of_birth": user.date_of_birth,
-                            "email": match &user.identification {
-                                IdentificationMethod::Email(email) => Some(&email.normalized_address),
-                                _ => None
-                            },
-                            "sms": match &user.identification {
-                                IdentificationMethod::Sms(sms) => Some(&sms.normalized_number),
-                                _ => None
-                            },
-                            "session_expiration_timestamp": session.timestamp + SESSION_MAX_AGE,
-                            "session_from_passkey": session.passkey_id.is_some(),
-                            "admin": user.admin,
-                        })).unwrap(),
+                        serde_json::to_vec(&UserResponse {
+                            first_name: user.first_name,
+                            last_name: user.last_name,
+                            date_of_birth: user.date_of_birth,
+                            email,
+                            sms,
+                            session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
+                            session_from_passkey: session.passkey_id.is_some(),
+                            admin: user.admin,
+                            metadata: user.metadata,
+                        })
+                        .unwrap(),
                     )))
                     .unwrap();
             } else if request.method() == Method::POST {
@@ -439,4 +440,18 @@ pub(crate) async fn handle_user(
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))
         .unwrap()
+}
+
+#[derive(Serialize)]
+struct UserResponse {
+    first_name: String,
+    last_name: String,
+    date_of_birth: u32,
+    email: Option<String>,
+    sms: Option<String>,
+    session_expiration_timestamp: u32,
+    session_from_passkey: bool,
+    admin: bool,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    metadata: Option<Value>,
 }
