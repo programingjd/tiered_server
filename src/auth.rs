@@ -651,11 +651,17 @@ pub(crate) async fn handle_auth(
                         .await
                         .is_some()
                     {
-                        debug!("200 https://{server_name}/api/auth/record_credential");
-                        return Response::builder()
-                            .status(StatusCode::OK)
-                            .body(Either::Right(Empty::new()))
-                            .unwrap();
+                        if let Some(session) =
+                            User::create_session(user.id, store_cache, Some(passkey.id)).await
+                        {
+                            debug!("200 https://{server_name}/api/auth/record_credential");
+                            let mut response = Response::builder().status(StatusCode::OK);
+                            let headers = response.headers_mut().unwrap();
+                            session.cookies().into_iter().for_each(|cookie| {
+                                headers.append(SET_COOKIE, cookie);
+                            });
+                            return response.body(Either::Right(Empty::new())).unwrap();
+                        };
                     }
                 }
             }

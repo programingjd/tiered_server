@@ -86,6 +86,7 @@ impl User {
                 .chain(random.into_iter())
                 .collect::<Vec<_>>(),
         );
+        // delete all previous sessions for the user unless they are with a different passkey
         let session_keys = store_cache
             .get_ref()
             .list::<Session>("sid/")
