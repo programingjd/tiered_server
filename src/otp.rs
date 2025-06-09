@@ -1,6 +1,7 @@
 use crate::email::Email;
 use crate::env::ConfigurationKey::{
-    EmailOneTimeLoginTemplate, EmailOneTimeLoginTitle, OtpSigningKey,
+    EmailAccountCreatedTemplate, EmailAccountCreatedTitle, EmailOneTimeLoginTemplate,
+    EmailOneTimeLoginTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
 use crate::headers::GET;
@@ -40,6 +41,13 @@ static EMAIL_ONE_TIME_LOGIN_TITLE: LazyLock<Option<&'static str>> =
 static EMAIL_ONE_TIME_LOGIN_TEMPLATE: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(EmailOneTimeLoginTemplate));
 
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_CREATED_TITLE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailAccountCreatedTitle));
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_CREATED_TEMPLATE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailAccountCreatedTemplate));
+
 const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -50,25 +58,58 @@ pub struct Otp {
 }
 
 impl Otp {
-    pub async fn send(
+    pub(crate) async fn send(
         user: &User,
         store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
         handler: &Arc<Handler>,
-        server_name: Arc<String>,
+        server_name: &Arc<String>,
     ) -> Option<()> {
         let email = match &user.identification {
             IdentificationMethod::Email(email) => email.address.as_str(),
             _ => return None,
         };
-        let otp = Self::create(user, store_cache).await?;
+        let otp = Self::create(user, store_cache, true).await?;
+        Self::send_otp(user, email, otp, handler, server_name).await
+    }
+    pub(crate) async fn send_initial(
+        user: &User,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        handler: &Arc<Handler>,
+        server_name: &Arc<String>,
+    ) -> Option<()> {
+        let email = match &user.identification {
+            IdentificationMethod::Email(email) => email.address.as_str(),
+            _ => return None,
+        };
+        let otp = Self::create(user, store_cache, false).await?;
+        Self::send_otp(user, email, otp, handler, server_name).await
+    }
+
+    async fn send_otp(
+        user: &User,
+        email: &str,
+        otp: Self,
+        handler: &Arc<Handler>,
+        server_name: &Arc<String>,
+    ) -> Option<()> {
         let id = otp.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
         let link_url = format!(
             "https://{server_name}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
-        let subject = (*EMAIL_ONE_TIME_LOGIN_TITLE)?;
-        let template_name = (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?;
+        let expiring = otp.timestamp != 0;
+        let (subject, template_name) = if expiring {
+            (
+                (*EMAIL_ONE_TIME_LOGIN_TITLE)?,
+                (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?,
+            )
+        } else {
+            (
+                (*EMAIL_ACCOUNT_CREATED_TITLE)?,
+                (*EMAIL_ACCOUNT_CREATED_TEMPLATE)?,
+            )
+        };
         let content = match handler
             .entry(&format!(
                 "{}{template_name}",
@@ -135,7 +176,11 @@ impl Otp {
         }
     }
 
-    async fn create(user: &User, store_cache: &Arc<NonEmptyPinboard<Snapshot>>) -> Option<Self> {
+    async fn create(
+        user: &User,
+        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        expiring: bool,
+    ) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -154,7 +199,7 @@ impl Otp {
         let otp = Self {
             id,
             user_id: user.id.clone(),
-            timestamp,
+            timestamp: if expiring { timestamp } else { 0 },
         };
         let _ = Self::remove_expired(store_cache, Some(user.id.as_str())).await;
         Snapshot::set(key.as_str(), &otp).await?;
@@ -173,17 +218,29 @@ impl Otp {
             .get_ref()
             .list::<Otp>("opt/")
             .filter_map(|(k, otp)| {
-                let elapsed = timestamp - otp.timestamp;
-                if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
-                    Some(k.to_string())
-                } else if let Some(user_id) = user_id {
-                    if otp.user_id == user_id {
-                        Some(k.to_string())
+                if otp.timestamp == 0 {
+                    if let Some(user_id) = user_id {
+                        if otp.user_id == user_id {
+                            Some(k.to_string())
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
                 } else {
-                    None
+                    let elapsed = timestamp - otp.timestamp;
+                    if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
+                        Some(k.to_string())
+                    } else if let Some(user_id) = user_id {
+                        if otp.user_id == user_id {
+                            Some(k.to_string())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
                 }
             })
             .collect::<Vec<_>>();
@@ -284,7 +341,7 @@ pub(crate) async fn handle_otp(
                     let store_cache = store_cache.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &store_cache, &handler, server_name).await
+                        Otp::send(&user, &store_cache, &handler, &server_name).await
                     });
                 }
             }
@@ -345,19 +402,29 @@ pub(crate) async fn handle_otp(
 }
 
 async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
+    let decoded_key = URL_SAFE_NO_PAD.decode_to_vec(token).ok()?;
+    let timestamp = u32::from_le_bytes(decoded_key[32..].try_into().ok()?);
     let key = format!("otp/{token}");
     let otp = store_cache.get_ref().get::<Otp>(key.as_str())?;
     let _ = Snapshot::delete([key.as_str()].iter()).await;
-    let timestamp = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs() as u32;
-    let elapsed = timestamp - otp.timestamp;
-    if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
-        None
-    } else {
+    if otp.timestamp == 0 {
         let key = format!("acc/{}", otp.user_id);
         let user = store_cache.get_ref().get(key.as_str())?;
         Some(user)
+    } else if otp.timestamp == timestamp {
+        let elapsed = now - timestamp;
+        if timestamp > now || elapsed > OTP_VALIDITY_DURATION {
+            None
+        } else {
+            let key = format!("acc/{}", otp.user_id);
+            let user = store_cache.get_ref().get(key.as_str())?;
+            Some(user)
+        }
+    } else {
+        None
     }
 }

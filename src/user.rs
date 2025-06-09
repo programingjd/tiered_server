@@ -1,7 +1,4 @@
-use crate::email::Email as SendEmail;
-use crate::env::ConfigurationKey::{
-    AdminUsers, EmailAccountCreatedTemplate, EmailAccountCreatedTitle, ValidationTotpSecret,
-};
+use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
 use crate::headers::{GET_POST_PUT, JSON};
 use crate::norm::{
@@ -9,26 +6,23 @@ use crate::norm::{
     normalize_phone_number,
 };
 use crate::otp::Otp;
-use crate::prefix::API_PATH_PREFIX;
 use crate::server::DOMAIN_APEX;
-use crate::session::{LOGIN_PATH, SESSION_MAX_AGE, SessionState};
+use crate::session::{SESSION_MAX_AGE, SessionState};
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
-use minijinja::Environment;
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use zip_static_handler::handler::Handler;
 
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
@@ -37,13 +31,6 @@ const SECS_PER_YEAR: u64 = 31_556_952;
 //noinspection SpellCheckingInspection
 static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(ValidationTotpSecret));
-
-//noinspection SpellCheckingInspection
-static EMAIL_ACCOUNT_CREATED_TITLE: LazyLock<Option<&'static str>> =
-    LazyLock::new(|| secret_value(EmailAccountCreatedTitle));
-//noinspection SpellCheckingInspection
-static EMAIL_ACCOUNT_CREATED_TEMPLATE: LazyLock<Option<&'static str>> =
-    LazyLock::new(|| secret_value(EmailAccountCreatedTemplate));
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Email {
@@ -152,7 +139,7 @@ pub(crate) async fn ensure_admin_users_exist(
         }) {
             info!("new admin account: {email} {last_name} {first_name}");
             let server_name = DOMAIN_APEX.to_string();
-            if let Some(user) = User::create(
+            User::create(
                 email.trim().to_string(),
                 None,
                 last_name.trim().to_string(),
@@ -167,16 +154,7 @@ pub(crate) async fn ensure_admin_users_exist(
                 &Arc::new(server_name),
                 store_cache,
             )
-            .await
-            {
-                Otp::send(
-                    &user,
-                    store_cache,
-                    &handler,
-                    Arc::new("localhost".to_string()),
-                )
-                .await?;
-            }
+            .await?;
         }
     }
     Some(())
@@ -242,83 +220,9 @@ impl User {
         };
         Snapshot::set(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            user.notify(handler, server_name).await?;
+            Otp::send_initial(&user, store_cache, handler, server_name).await?;
         }
         Some(user)
-    }
-
-    async fn notify(&self, handler: &Arc<Handler>, server_name: &Arc<String>) -> Option<()> {
-        let email = match &self.identification {
-            IdentificationMethod::Email(email) => email.address.as_str(),
-            _ => return None,
-        };
-        let link_url = format!("https://{server_name}{}", *LOGIN_PATH,);
-        let subject = (*EMAIL_ACCOUNT_CREATED_TITLE)?;
-        let template_name = (*EMAIL_ACCOUNT_CREATED_TEMPLATE)?;
-        let content = match handler
-            .entry(&format!(
-                "{}{template_name}",
-                API_PATH_PREFIX.with_trailing_slash
-            ))
-            .and_then(|it| it.content.clone())
-        {
-            Some(content) => content,
-            None => {
-                warn!(
-                    "missing email template: {}{template_name}",
-                    API_PATH_PREFIX.with_trailing_slash
-                );
-                return None;
-            }
-        };
-        let html_body = match from_utf8(content.as_ref()) {
-            Ok(jinja) => {
-                let mut environment = Environment::new();
-                match environment.add_template("new_credentials", jinja) {
-                    Ok(()) => environment.get_template("new_credentials"),
-                    Err(err) => {
-                        warn!(
-                            "invalid template: {}{template_name}:\n{err:?}",
-                            API_PATH_PREFIX.with_trailing_slash
-                        );
-                        return None;
-                    }
-                }
-                .and_then(|template| {
-                    template.render(json!({
-                        "user": self,
-                        "link_url": link_url.as_str(),
-                    }))
-                })
-            }
-            Err(_) => {
-                warn!(
-                    "invalid template: {}{template_name}",
-                    API_PATH_PREFIX.with_trailing_slash
-                );
-                return None;
-            }
-        };
-        let html_body = match html_body {
-            Ok(html_body) => html_body,
-            Err(err) => {
-                warn!(
-                    "invalid template: {}{template_name}:\n{err:?}",
-                    API_PATH_PREFIX.with_trailing_slash
-                );
-                return None;
-            }
-        };
-        #[cfg(debug_assertions)]
-        let send = false;
-        #[cfg(not(debug_assertions))]
-        let send = true;
-        if send {
-            SendEmail::send(email, subject, html_body.as_str()).await
-        } else {
-            println!("\x1b[34;49;4m{link_url}\x1b[0m");
-            Some(())
-        }
     }
 }
 
@@ -437,10 +341,14 @@ pub(crate) async fn handle_user(
                                         .await
                                         .is_some()
                                     && (skip_notification
-                                        || user
-                                            .notify(&handler.clone(), &server_name.clone())
-                                            .await
-                                            .is_some())
+                                        || Otp::send_initial(
+                                            &user,
+                                            store_cache,
+                                            &handler,
+                                            &server_name,
+                                        )
+                                        .await
+                                        .is_some())
                                 {
                                     debug!("202 https://{server_name}/api/user/admin/reg");
                                     return Response::builder()
