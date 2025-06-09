@@ -16,12 +16,13 @@ use ring::error::Unspecified;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
 use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
+use tar::{Archive, Builder, Header};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{debug, trace, warn};
 
@@ -172,6 +173,41 @@ impl Snapshot {
             }
         }
         Some(())
+    }
+    pub async fn backup(&self) -> Option<Vec<u8>> {
+        let mut bytes = Vec::new();
+        {
+            let mut tar = Builder::new(&mut bytes);
+            for (path, entry) in self.entries.iter() {
+                let mut header = Header::new_gnu();
+                header.set_path(path).ok()?;
+                header.set_size(entry.data.len() as u64);
+                header.set_mtime(entry.timestamp as u64);
+                tar.append(&header, entry.data.as_slice()).ok()?;
+            }
+            tar.finish().ok()?;
+        }
+        Some(bytes)
+    }
+    pub async fn restore(&self, bytes: &[u8]) -> Option<()> {
+        let mut keys = self.entries.keys().collect::<BTreeSet<_>>();
+        let mut tar = Archive::new(bytes);
+        let store = store()?;
+        for entry in tar.entries().ok()? {
+            let mut entry = entry.ok()?;
+            let key = entry
+                .path()
+                .as_ref()
+                .ok()
+                .and_then(|it| it.to_str())?
+                .to_string();
+            keys.remove(&key);
+            let path = Path::from(key);
+            let mut data = Vec::new();
+            entry.read_to_end(&mut data).ok()?;
+            store.put(&path, PutPayload::from(data)).await.ok()?;
+        }
+        Self::delete(keys.into_iter()).await
     }
 }
 
