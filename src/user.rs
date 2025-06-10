@@ -224,6 +224,20 @@ impl User {
         }
         Some(user)
     }
+    pub fn email(&self) -> Option<&str> {
+        if let IdentificationMethod::Email(ref email) = self.identification {
+            Some(email.normalized_address.as_str())
+        } else {
+            None
+        }
+    }
+    pub fn sms(&self) -> Option<&str> {
+        if let IdentificationMethod::Sms(ref number) = self.identification {
+            Some(number.normalized_number.as_str())
+        } else {
+            None
+        }
+    }
 }
 
 #[allow(clippy::inconsistent_digit_grouping)]
