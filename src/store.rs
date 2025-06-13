@@ -180,10 +180,23 @@ impl Snapshot {
             let mut tar = Builder::new(&mut bytes);
             for (path, entry) in self.entries.iter() {
                 let mut header = Header::new_gnu();
-                header.set_path(path).ok()?;
+                debug!("backup: {path}");
+                // header
+                //     .set_path(path)
+                //     .map_err(|err| {
+                //         warn!("{err:?}");
+                //         err
+                //     })
+                //     .ok()?;
                 header.set_size(entry.data.len() as u64);
                 header.set_mtime(entry.timestamp as u64);
-                tar.append(&header, entry.data.as_slice()).ok()?;
+                header.set_cksum();
+                tar.append_data(&mut header, path, entry.data.as_slice())
+                    .map_err(|err| {
+                        warn!("{err:?}");
+                        err
+                    })
+                    .ok()?;
             }
             tar.finish().ok()?;
         }
