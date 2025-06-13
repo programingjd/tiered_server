@@ -33,7 +33,7 @@ static VALIDATION_TOTP_SECRET: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(ValidationTotpSecret));
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Email {
+pub struct Email {
     pub(crate) address: String,
     pub(crate) normalized_address: String,
 }
@@ -48,7 +48,7 @@ impl From<String> for Email {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct Sms {
+pub struct Sms {
     number: String,
     normalized_number: String,
 }
@@ -63,7 +63,7 @@ impl From<String> for Sms {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) enum IdentificationMethod {
+pub enum IdentificationMethod {
     Email(Email),
     Sms(Sms),
     NotSet,
@@ -72,7 +72,7 @@ pub(crate) enum IdentificationMethod {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
-    pub(crate) identification: IdentificationMethod,
+    pub identification: IdentificationMethod,
     pub last_name: String,
     pub last_name_norm: String,
     pub first_name: String,
@@ -181,16 +181,7 @@ impl User {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let mut random = [0u8; 36];
-        random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
-        SystemRandom::new().fill(&mut random[..32]).unwrap();
-        let id = URL_SAFE_NO_PAD.encode_to_string(
-            timestamp
-                .to_le_bytes()
-                .into_iter()
-                .chain(random.into_iter())
-                .collect::<Vec<_>>(),
-        );
+        let id = Self::new_id(timestamp);
         let identification = IdentificationMethod::Email(Email {
             normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
             address: email,
@@ -237,6 +228,18 @@ impl User {
         } else {
             None
         }
+    }
+    pub fn new_id(timestamp: u32) -> String {
+        let mut random = [0u8; 36];
+        random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
+        SystemRandom::new().fill(&mut random[..32]).unwrap();
+        URL_SAFE_NO_PAD.encode_to_string(
+            timestamp
+                .to_le_bytes()
+                .into_iter()
+                .chain(random.into_iter())
+                .collect::<Vec<_>>(),
+        )
     }
 }
 
