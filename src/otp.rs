@@ -198,7 +198,7 @@ impl Otp {
             timestamp: if expiring { timestamp } else { 0 },
         };
         let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
-        Snapshot::set(key.as_str(), &otp).await?;
+        Snapshot::set_and_wait_for_update(key.as_str(), &otp).await?;
         Some(otp)
     }
 
@@ -296,7 +296,7 @@ pub(crate) async fn handle_otp(
                 let email_norm = email.as_ref().map(|it| normalize_email(it));
                 let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
                 let first_name_norm = first_name.as_ref().map(|it| normalize_first_name(it));
-                let snapshot = snapshot().await;
+                let snapshot = snapshot();
                 let single = single(snapshot.list::<User>("acc/").filter_map(|(_, user)| {
                     if let Some(ref email_norm) = email_norm {
                         if let IdentificationMethod::Email(ref e) = user.identification {
@@ -328,7 +328,7 @@ pub(crate) async fn handle_otp(
                     let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &snapshot, &static_handler().await, &server_name).await
+                        Otp::send(&user, &snapshot, &static_handler(), &server_name).await
                     });
                 }
             }
@@ -357,7 +357,7 @@ pub(crate) async fn handle_otp(
             let token = token.unwrap();
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
-                    let snapshot = snapshot().await;
+                    let snapshot = snapshot();
                     if let Some(user) = validate_otp(token, &snapshot).await {
                         if let Some(session) = User::create_session(&user.id, &snapshot, None).await
                         {

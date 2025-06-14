@@ -208,7 +208,7 @@ impl User {
                 None
             },
         };
-        Snapshot::set(key.as_str(), &user).await?;
+        Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
             Otp::send_initial(&user, snapshot, handler, server_name).await?;
         }
@@ -249,7 +249,7 @@ pub(crate) async fn handle_user(
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     if let Some(path) = path.strip_prefix("/admin") {
-        let snapshot = snapshot().await;
+        let snapshot = snapshot();
         if let SessionState::Valid { user, .. } =
             SessionState::from_headers(request.headers(), &snapshot).await
         {
@@ -348,9 +348,12 @@ pub(crate) async fn handle_user(
                             let user = snapshot.get::<User>(user_id.as_str());
                             if let Some(mut user) = user {
                                 user.metadata = None;
-                                if Snapshot::set(format!("acc/{user_id}").as_str(), &user)
-                                    .await
-                                    .is_some()
+                                if Snapshot::set_and_wait_for_update(
+                                    format!("acc/{user_id}").as_str(),
+                                    &user,
+                                )
+                                .await
+                                .is_some()
                                     && Snapshot::delete([format!("reg/{user_id}").as_str()].iter())
                                         .await
                                         .is_some()
@@ -358,7 +361,7 @@ pub(crate) async fn handle_user(
                                         || Otp::send_initial(
                                             &user,
                                             &snapshot,
-                                            &static_handler().await,
+                                            &static_handler(),
                                             server_name,
                                         )
                                         .await
@@ -470,7 +473,7 @@ pub(crate) async fn handle_user(
                     } else {
                         true
                     };
-                    let snapshot = snapshot().await;
+                    let snapshot = snapshot();
                     let existing = snapshot.list::<User>("acc/").any(|(_, ref user)| {
                         if let IdentificationMethod::Email(ref email) = user.identification {
                             email_norm == email.normalized_address
@@ -509,7 +512,7 @@ pub(crate) async fn handle_user(
                             needs_moderation,
                             false,
                             &snapshot,
-                            &static_handler().await,
+                            &static_handler(),
                             server_name,
                         )
                         .await;
@@ -527,7 +530,7 @@ pub(crate) async fn handle_user(
                 .body(Either::Right(Empty::new()))
                 .unwrap();
         } else {
-            let snapshot = snapshot().await;
+            let snapshot = snapshot();
             if let SessionState::Valid { user, session } =
                 SessionState::from_headers(request.headers(), &snapshot).await
             {

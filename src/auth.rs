@@ -433,7 +433,7 @@ pub(crate) async fn handle_auth(
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
-    let snapshot = snapshot().await;
+    let snapshot = snapshot();
     let session_state = SessionState::from_headers(request.headers(), &snapshot).await;
     let (user, session) = match session_state {
         SessionState::Valid { user, session } => (Some(user), Some(session)),
@@ -642,9 +642,12 @@ pub(crate) async fn handle_auth(
             }
             if i.is_some() && challenge_verified {
                 if let Some(passkey) = PassKey::new(i.unwrap(), a, k) {
-                    if Snapshot::set(&format!("pk/{}/{}", user.id, passkey.id), &passkey)
-                        .await
-                        .is_some()
+                    if Snapshot::set_and_wait_for_update(
+                        &format!("pk/{}/{}", user.id, passkey.id),
+                        &passkey,
+                    )
+                    .await
+                    .is_some()
                     {
                         if let Some(session) =
                             User::create_session(user.id, &snapshot, Some(passkey.id)).await
@@ -809,7 +812,7 @@ pub(crate) async fn handle_auth(
         if user.is_some() {
             if let Some(mut session) = session {
                 session.timestamp = 0;
-                Snapshot::set(&format!("sid/{}", session.id), &session).await;
+                Snapshot::set_and_wait_for_update(&format!("sid/{}", session.id), &session).await;
             }
             debug!("302 https://{server_name}/api/auth/disconnect_user");
             let mut response = Response::builder().status(StatusCode::FOUND);

@@ -114,7 +114,7 @@ impl User {
             timestamp,
         };
         let key = format!("sid/{}", session.id);
-        Snapshot::set(key.as_str(), &session).await?;
+        Snapshot::set_and_wait_for_update(key.as_str(), &session).await?;
         Some(session)
     }
 }

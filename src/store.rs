@@ -23,7 +23,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
 use tar::{Archive, Builder, Header};
-use tokio::time::{MissedTickBehavior, interval};
+use tokio::time::{MissedTickBehavior, interval, sleep};
 use tracing::{debug, trace, warn};
 
 static SNAPSHOT: LazyLock<Pinboard<Arc<Snapshot>>> = LazyLock::new(Pinboard::new_empty);
@@ -67,11 +67,24 @@ fn update_store_cache_loop() {
     });
 }
 
-pub async fn snapshot() -> Arc<Snapshot> {
+pub fn snapshot() -> Arc<Snapshot> {
     if let Some(snapshot) = SNAPSHOT.get_ref() {
         snapshot.clone()
     } else {
-        let snapshot = Arc::new(new_snapshot().await.expect("failed to create snapshot"));
+        let snapshot = Arc::new(
+            thread::spawn(move || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_time()
+                    .enable_io()
+                    .build()
+                    .unwrap()
+                    .block_on(async move { new_snapshot().await })
+            })
+            .join()
+            .ok()
+            .flatten()
+            .expect("failed to create snapshot"),
+        );
         SNAPSHOT.set(snapshot.clone());
         update_store_cache_loop();
         snapshot
@@ -132,7 +145,13 @@ impl Snapshot {
             }
         })
     }
-    pub async fn set<T: Serialize>(path: &str, data: &T) -> Option<()> {
+    pub async fn set_and_wait_for_update<T: Serialize>(path: &str, data: &T) -> Option<()> {
+        Self::set(path, data, false).await
+    }
+    pub async fn set_and_return_before_update<T: Serialize>(path: &str, data: &T) -> Option<()> {
+        Self::set(path, data, true).await
+    }
+    async fn set<T: Serialize>(path: &str, data: &T, skip_update: bool) -> Option<()> {
         let store = store()?;
         let path = Path::from(path);
         let encrypted = encrypt(data);
@@ -142,26 +161,32 @@ impl Snapshot {
         );
         match store.put(&path, payload).await {
             Ok(_) => {
-                let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
-                if version == 0 {
-                    return Some(());
-                }
-                trace!("cache version before update: {version}");
-                let mut retries = 0_u8;
-                let mut delay = interval(Duration::from_millis(300_u64));
-                delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
-                loop {
-                    delay.tick().await;
-                    if retries == 10 {
-                        warn!("cache update delay too long");
-                        return None;
-                    }
-                    let current_version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
-                    trace!("cache version: {current_version}");
-                    if current_version > version {
+                if skip_update {
+                    sleep(Duration::from_millis(50)).await;
+                    Some(())
+                } else {
+                    let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
+                    if version == 0 {
                         return Some(());
                     }
-                    retries += 1;
+                    trace!("cache version before update: {version}");
+                    let mut retries = 0_u8;
+                    let mut delay = interval(Duration::from_millis(300_u64));
+                    delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
+                    loop {
+                        delay.tick().await;
+                        if retries == 10 {
+                            warn!("cache update delay too long");
+                            return None;
+                        }
+                        let current_version =
+                            CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
+                        trace!("cache version: {current_version}");
+                        if current_version > version {
+                            return Some(());
+                        }
+                        retries += 1;
+                    }
                 }
             }
             Err(err) => {

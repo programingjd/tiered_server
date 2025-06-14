@@ -127,8 +127,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
         .await
         .expect("could not bind to 443");
 
-    let _ = snapshot().await;
-    ensure_admin_users_exist(&snapshot().await, &static_handler().await)
+    ensure_admin_users_exist(&snapshot(), &static_handler())
         .await
         .expect("failed to get or create admin users");
 
@@ -172,7 +171,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                         }
                                         // api requests
                                         else {
-                                            let handler = static_handler().await;
+                                            let handler = static_handler();
                                             if api_path_prefix.matches(path) {
                                             Ok::<_, Infallible>(
                                                 handle_api(request, &server_name, extension).await,
@@ -191,7 +190,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                             })
                                                         })
                                                     {
-                                                        let snapshot = snapshot().await;
+                                                        let snapshot = snapshot();
                                                         match SessionState::from_headers(
                                                             request.headers(),
                                                             &snapshot,

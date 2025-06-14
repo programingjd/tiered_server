@@ -1,6 +1,6 @@
 [package]
 name = "tiered_server"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 
@@ -51,11 +51,6 @@ features = ["ring"]
 version = "0.8"
 default-features = false
 features = ["std"]
-
-[dependencies.base58]
-version = "0.2"
-default-features = false
-features = []
 
 [dependencies.serde]
 version = "1.0"
