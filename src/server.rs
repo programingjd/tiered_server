@@ -12,7 +12,7 @@ use crate::headers::HSelector;
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
-use crate::store::{snapshot, update_store_cache_loop};
+use crate::store::snapshot;
 use crate::user::ensure_admin_users_exist;
 use extern_rustls::ServerConfig;
 use extern_rustls::crypto::ring::sign::any_supported_type;
@@ -152,17 +152,14 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
         .try_build()
         .expect("failed to extract static content");
 
-    let snapshot = snapshot(None).await.expect("failed to cache store content");
-    let store_cache = Arc::new(NonEmptyPinboard::new(snapshot));
+    let _ = snapshot().await.expect("failed to cache store content");
     let static_handler = Arc::new(NonEmptyPinboard::new(Arc::new(static_handler)));
-    ensure_admin_users_exist(&store_cache, static_handler.get_ref().clone())
+    ensure_admin_users_exist(static_handler.get_ref().clone())
         .await
         .expect("failed to get or create admin users");
-    update_store_cache_loop(store_cache.clone());
 
     loop {
         if let Ok((tcp_stream, remote_address)) = listener.accept().await {
-            let store_cache = store_cache.clone();
             let firewall = firewall.clone();
             let webhook_firewall = webhook_firewall.clone();
             let config = config.clone();
@@ -191,7 +188,6 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                 service_fn(move |request| {
                                     let server_name = server_name.clone();
                                     let handler = static_handler.clone();
-                                    let store_cache = store_cache.clone();
                                     async move {
                                         let path = request.uri().path();
                                         debug!("{} https://{server_name}{path}", request.method());
@@ -206,7 +202,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                         else if api_path_prefix.matches(path) {
                                             let handler: Arc<Handler> = handler.get_ref().clone();
                                             Ok::<_, Infallible>(
-                                                handle_api(request, &store_cache, handler, server_name, extension).await,
+                                                handle_api(request, handler, server_name, extension).await,
                                             )
                                         } else {
                                             let handler: Arc<Handler> = handler.get_ref().clone();
@@ -223,9 +219,21 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                         })
                                                     })
                                                 {
+                                                    let snapshot = snapshot().await;
+                                                    if snapshot.is_none() {
+                                                        return Ok::<_, Infallible>(
+                                                            Response::builder()
+                                                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                                                .body(Either::Right(
+                                                                    Empty::new(),
+                                                                ))
+                                                                .unwrap(),
+                                                        );
+                                                    }
+                                                    let snapshot = snapshot.unwrap();
                                                     match SessionState::from_headers(
                                                         request.headers(),
-                                                        &store_cache,
+                                                        &snapshot,
                                                     )
                                                     .await
                                                     {

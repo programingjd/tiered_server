@@ -8,14 +8,13 @@ use crate::norm::{
 use crate::otp::Otp;
 use crate::server::DOMAIN_APEX;
 use crate::session::{SESSION_MAX_AGE, SessionState};
-use crate::store::Snapshot;
+use crate::store::{Snapshot, snapshot};
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
-use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -88,13 +87,10 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub(crate) async fn ensure_admin_users_exist(
-    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-    handler: Arc<Handler>,
-) -> Option<()> {
+pub(crate) async fn ensure_admin_users_exist(handler: Arc<Handler>) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
-    let users = store_cache
-        .get_ref()
+    let snapshot = snapshot().await?;
+    let users = snapshot
         .list::<User>("acc/")
         .map(|(_, user)| user)
         .collect::<Vec<_>>();
@@ -150,9 +146,9 @@ pub(crate) async fn ensure_admin_users_exist(
                 true,
                 false,
                 true,
+                &snapshot,
                 &handler.clone(),
                 &Arc::new(server_name),
-                store_cache,
             )
             .await?;
         }
@@ -173,9 +169,9 @@ impl User {
         admin: bool,
         needs_validation: bool,
         skip_notification: bool,
+        snapshot: &Arc<Snapshot>,
         handler: &Arc<Handler>,
         server_name: &Arc<String>,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -187,7 +183,7 @@ impl User {
             address: email,
         });
         let key = format!("{}/{id}", if needs_validation { "reg" } else { "acc" });
-        if store_cache.get_ref().get::<User>(key.as_str()).is_some() {
+        if snapshot.get::<User>(key.as_str()).is_some() {
             return None;
         }
         let first_name_norm =
@@ -211,7 +207,7 @@ impl User {
         };
         Snapshot::set(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            Otp::send_initial(&user, store_cache, handler, server_name).await?;
+            Otp::send_initial(&user, snapshot, handler, server_name).await?;
         }
         Some(user)
     }
@@ -237,7 +233,7 @@ impl User {
             timestamp
                 .to_le_bytes()
                 .into_iter()
-                .chain(random.into_iter())
+                .chain(random)
                 .collect::<Vec<_>>(),
         )
     }
@@ -246,14 +242,22 @@ impl User {
 #[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
-    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     handler: Arc<Handler>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     if let Some(path) = path.strip_prefix("/admin") {
+        let snapshot = snapshot().await;
+        if snapshot.is_none() {
+            debug!("500 /api/user/admin/{path}");
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Either::Right(Empty::new()))
+                .unwrap();
+        }
+        let snapshot = snapshot.unwrap();
         if let SessionState::Valid { user, .. } =
-            SessionState::from_headers(request.headers(), store_cache).await
+            SessionState::from_headers(request.headers(), &snapshot).await
         {
             if user.admin {
                 if path == "/reg/code" {
@@ -277,8 +281,7 @@ pub(crate) async fn handle_user(
                             #[serde(flatten, skip_serializing_if = "Option::is_none")]
                             metadata: Option<Value>,
                         }
-                        let users = store_cache
-                            .get_ref()
+                        let users = snapshot
                             .list::<User>("reg/")
                             .map(|(_, user)| {
                                 let (email, sms) = match user.identification {
@@ -348,7 +351,7 @@ pub(crate) async fn handle_user(
                             }
                         }
                         if let Some(user_id) = user_id {
-                            let user = store_cache.get_ref().get::<User>(user_id.as_str());
+                            let user = snapshot.get::<User>(user_id.as_str());
                             if let Some(mut user) = user {
                                 user.metadata = None;
                                 if Snapshot::set(format!("acc/{user_id}").as_str(), &user)
@@ -360,7 +363,7 @@ pub(crate) async fn handle_user(
                                     && (skip_notification
                                         || Otp::send_initial(
                                             &user,
-                                            store_cache,
+                                            &snapshot,
                                             &handler,
                                             &server_name,
                                         )
@@ -473,21 +476,24 @@ pub(crate) async fn handle_user(
                     } else {
                         true
                     };
-                    let existing =
-                        store_cache
-                            .get_ref()
-                            .list::<User>("acc/")
-                            .any(|(_, ref user)| {
-                                if let IdentificationMethod::Email(ref email) = user.identification
-                                {
-                                    email_norm == email.normalized_address
-                                        && user.date_of_birth == dob
-                                        && user.last_name_norm == last_name_norm
-                                        && user.first_name_norm == first_name_norm
-                                } else {
-                                    false
-                                }
-                            });
+                    let snapshot = snapshot().await;
+                    if snapshot.is_none() {
+                        return Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
+                    }
+                    let snapshot = snapshot.unwrap();
+                    let existing = snapshot.list::<User>("acc/").any(|(_, ref user)| {
+                        if let IdentificationMethod::Email(ref email) = user.identification {
+                            email_norm == email.normalized_address
+                                && user.date_of_birth == dob
+                                && user.last_name_norm == last_name_norm
+                                && user.first_name_norm == first_name_norm
+                        } else {
+                            false
+                        }
+                    });
                     if !existing {
                         let email_trim = email.trim();
                         let last_name_trim = last_name.trim();
@@ -515,9 +521,9 @@ pub(crate) async fn handle_user(
                             false,
                             needs_moderation,
                             false,
-                            &handler.clone(),
+                            &snapshot,
+                            &handler,
                             &server_name,
-                            store_cache,
                         )
                         .await;
                     }
@@ -533,58 +539,70 @@ pub(crate) async fn handle_user(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
                 .unwrap();
-        } else if let SessionState::Valid { user, session } =
-            SessionState::from_headers(request.headers(), store_cache).await
-        {
-            if request.method() == Method::GET {
-                let mut response = Response::builder();
-                response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
-                let (email, sms) = match user.identification {
-                    IdentificationMethod::Email(email) => (Some(email.normalized_address), None),
-                    IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
-                    _ => (None, None),
-                };
-                #[derive(Serialize)]
-                struct UserResponse {
-                    first_name: String,
-                    last_name: String,
-                    date_of_birth: u32,
-                    email: Option<String>,
-                    sms: Option<String>,
-                    session_expiration_timestamp: u32,
-                    session_from_passkey: bool,
-                    admin: bool,
-                    #[serde(flatten, skip_serializing_if = "Option::is_none")]
-                    metadata: Option<Value>,
-                }
-                debug!("200 https://{server_name}/api/user");
+        } else {
+            let snapshot = snapshot().await;
+            if snapshot.is_none() {
                 return Response::builder()
-                    .status(StatusCode::OK)
-                    .header(CONTENT_TYPE, JSON)
-                    .body(Either::Left(Full::from(
-                        serde_json::to_vec(&UserResponse {
-                            first_name: user.first_name,
-                            last_name: user.last_name,
-                            date_of_birth: user.date_of_birth,
-                            email,
-                            sms,
-                            session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
-                            session_from_passkey: session.passkey_id.is_some(),
-                            admin: user.admin,
-                            metadata: user.metadata,
-                        })
-                        .unwrap(),
-                    )))
-                    .unwrap();
-            } else {
-                let mut response = Response::builder();
-                let headers = response.headers_mut().unwrap();
-                headers.insert(ALLOW, GET_POST_PUT);
-                debug!("405 https://{server_name}/api/user");
-                return response
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .body(Either::Right(Empty::new()))
                     .unwrap();
+            }
+            let snapshot = snapshot.unwrap();
+            if let SessionState::Valid { user, session } =
+                SessionState::from_headers(request.headers(), &snapshot).await
+            {
+                if request.method() == Method::GET {
+                    let mut response = Response::builder();
+                    response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
+                    let (email, sms) = match user.identification {
+                        IdentificationMethod::Email(email) => {
+                            (Some(email.normalized_address), None)
+                        }
+                        IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
+                        _ => (None, None),
+                    };
+                    #[derive(Serialize)]
+                    struct UserResponse {
+                        first_name: String,
+                        last_name: String,
+                        date_of_birth: u32,
+                        email: Option<String>,
+                        sms: Option<String>,
+                        session_expiration_timestamp: u32,
+                        session_from_passkey: bool,
+                        admin: bool,
+                        #[serde(flatten, skip_serializing_if = "Option::is_none")]
+                        metadata: Option<Value>,
+                    }
+                    debug!("200 https://{server_name}/api/user");
+                    return Response::builder()
+                        .status(StatusCode::OK)
+                        .header(CONTENT_TYPE, JSON)
+                        .body(Either::Left(Full::from(
+                            serde_json::to_vec(&UserResponse {
+                                first_name: user.first_name,
+                                last_name: user.last_name,
+                                date_of_birth: user.date_of_birth,
+                                email,
+                                sms,
+                                session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
+                                session_from_passkey: session.passkey_id.is_some(),
+                                admin: user.admin,
+                                metadata: user.metadata,
+                            })
+                            .unwrap(),
+                        )))
+                        .unwrap();
+                } else {
+                    let mut response = Response::builder();
+                    let headers = response.headers_mut().unwrap();
+                    headers.insert(ALLOW, GET_POST_PUT);
+                    debug!("405 https://{server_name}/api/user");
+                    return response
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap();
+                }
             }
         }
         debug!("403 https://{server_name}/api/user");

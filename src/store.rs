@@ -8,7 +8,7 @@ use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use object_store::{GetResultPayload, ObjectStore, PutPayload};
-use pinboard::NonEmptyPinboard;
+use pinboard::Pinboard;
 use ring::aead::{
     AES_256_GCM, Aad, BoundKey, LessSafeKey, Nonce, NonceSequence, OpeningKey, UnboundKey,
 };
@@ -26,6 +26,8 @@ use tar::{Archive, Builder, Header};
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{debug, trace, warn};
 
+static SNAPSHOT: LazyLock<Pinboard<Arc<Snapshot>>> = LazyLock::new(Pinboard::new_empty);
+
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
     #[allow(dead_code)]
@@ -37,11 +39,9 @@ struct Entry {
     timestamp: u32,
 }
 
-type StorageCache = Arc<NonEmptyPinboard<Snapshot>>;
-
 static CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
 
-pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
+fn update_store_cache_loop() {
     CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
     thread::spawn(move || {
         tokio::runtime::Builder::new_current_thread()
@@ -54,9 +54,8 @@ pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
                 delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 loop {
                     delay.tick().await;
-                    let current = store_cache.get_ref();
-                    if let Some(snapshot) = snapshot(Some(&current)).await {
-                        store_cache.set(snapshot);
+                    if let Some(snapshot) = new_snapshot().await {
+                        SNAPSHOT.set(Arc::new(snapshot));
                         let version =
                             CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
                         trace!("snapshot updated (version: {version})");
@@ -68,7 +67,19 @@ pub(crate) fn update_store_cache_loop(store_cache: StorageCache) {
     });
 }
 
-pub async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
+pub async fn snapshot() -> Option<Arc<Snapshot>> {
+    if let Some(snapshot) = SNAPSHOT.get_ref() {
+        Some(snapshot.clone())
+    } else {
+        let snapshot = new_snapshot().await?;
+        SNAPSHOT.set(Arc::new(snapshot));
+        update_store_cache_loop();
+        SNAPSHOT.get_ref().map(|it| it.clone())
+    }
+}
+
+pub async fn new_snapshot() -> Option<Snapshot> {
+    let reference = SNAPSHOT.get_ref();
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -83,7 +94,9 @@ pub async fn snapshot(reference: Option<&Snapshot>) -> Option<Snapshot> {
         }
         let metadata = metadata.unwrap();
         let timestamp = metadata.last_modified.timestamp() as u32;
+        let reference = SNAPSHOT.get_ref().map(|it| it.clone());
         let data = if let Some(existing) = reference
+            .as_ref()
             .and_then(|it| it.entries.get(metadata.location.as_ref()))
             .filter(|it| it.timestamp == timestamp)
         {

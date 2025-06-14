@@ -8,7 +8,7 @@ use crate::headers::GET;
 use crate::iter::single;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
-use crate::store::Snapshot;
+use crate::store::{Snapshot, snapshot};
 use crate::user::{IdentificationMethod, User};
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
@@ -17,7 +17,6 @@ use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue, LOCATION, SET_COOKIE};
 use hyper::{Method, Request, Response, StatusCode};
 use minijinja::Environment;
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
-use pinboard::NonEmptyPinboard;
 use ring::hmac::{HMAC_SHA256, Key, sign};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
@@ -60,7 +59,7 @@ pub struct Otp {
 impl Otp {
     pub(crate) async fn send(
         user: &User,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        snapshot: &Arc<Snapshot>,
         handler: &Arc<Handler>,
         server_name: &Arc<String>,
     ) -> Option<()> {
@@ -68,12 +67,12 @@ impl Otp {
             IdentificationMethod::Email(email) => email.address.as_str(),
             _ => return None,
         };
-        let otp = Self::create(user, store_cache, true).await?;
+        let otp = Self::create(user, snapshot, true).await?;
         Self::send_otp(user, email, otp, handler, server_name).await
     }
     pub(crate) async fn send_initial(
         user: &User,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        snapshot: &Arc<Snapshot>,
         handler: &Arc<Handler>,
         server_name: &Arc<String>,
     ) -> Option<()> {
@@ -81,7 +80,7 @@ impl Otp {
             IdentificationMethod::Email(email) => email.address.as_str(),
             _ => return None,
         };
-        let otp = Self::create(user, store_cache, false).await?;
+        let otp = Self::create(user, snapshot, false).await?;
         Self::send_otp(user, email, otp, handler, server_name).await
     }
 
@@ -176,11 +175,7 @@ impl Otp {
         }
     }
 
-    async fn create(
-        user: &User,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-        expiring: bool,
-    ) -> Option<Self> {
+    async fn create(user: &User, snapshot: &Arc<Snapshot>, expiring: bool) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -201,21 +196,17 @@ impl Otp {
             user_id: user.id.clone(),
             timestamp: if expiring { timestamp } else { 0 },
         };
-        let _ = Self::remove_expired(store_cache, Some(user.id.as_str())).await;
+        let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
         Snapshot::set(key.as_str(), &otp).await?;
         Some(otp)
     }
 
-    async fn remove_expired(
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
-        user_id: Option<&str>,
-    ) -> Option<()> {
+    async fn remove_expired(snapshot: &Arc<Snapshot>, user_id: Option<&str>) -> Option<()> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
-        let paths: Vec<String> = store_cache
-            .get_ref()
+        let paths: Vec<String> = snapshot
             .list::<Otp>("opt/")
             .filter_map(|(k, otp)| {
                 if otp.timestamp == 0 {
@@ -256,7 +247,6 @@ pub(crate) fn token_signature(token: &str) -> Option<String> {
 
 pub(crate) async fn handle_otp(
     request: Request<Incoming>,
-    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     handler: Arc<Handler>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
@@ -306,42 +296,46 @@ pub(crate) async fn handle_otp(
                 let email_norm = email.as_ref().map(|it| normalize_email(it));
                 let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
                 let first_name_norm = first_name.as_ref().map(|it| normalize_first_name(it));
-                let single = single(store_cache.get_ref().list::<User>("acc/").filter_map(
-                    |(_, user)| {
-                        if let Some(ref email_norm) = email_norm {
-                            if let IdentificationMethod::Email(ref e) = user.identification {
-                                if email_norm != &e.normalized_address {
-                                    return None;
-                                }
-                            } else {
+                let snapshot = snapshot().await;
+                if snapshot.is_none() {
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap();
+                }
+                let snapshot = snapshot.unwrap();
+                let single = single(snapshot.list::<User>("acc/").filter_map(|(_, user)| {
+                    if let Some(ref email_norm) = email_norm {
+                        if let IdentificationMethod::Email(ref e) = user.identification {
+                            if email_norm != &e.normalized_address {
                                 return None;
                             }
+                        } else {
+                            return None;
                         }
-                        if let Some(ref last_name_norm) = last_name_norm {
-                            if last_name_norm != &user.last_name_norm {
-                                return None;
-                            }
+                    }
+                    if let Some(ref last_name_norm) = last_name_norm {
+                        if last_name_norm != &user.last_name_norm {
+                            return None;
                         }
-                        if let Some(ref first_name_norm) = first_name_norm {
-                            if first_name_norm != &user.first_name_norm {
-                                return None;
-                            }
+                    }
+                    if let Some(ref first_name_norm) = first_name_norm {
+                        if first_name_norm != &user.first_name_norm {
+                            return None;
                         }
-                        if let Some(dob) = dob {
-                            if dob != user.date_of_birth {
-                                return None;
-                            }
+                    }
+                    if let Some(dob) = dob {
+                        if dob != user.date_of_birth {
+                            return None;
                         }
-                        Some(user)
-                    },
-                ));
+                    }
+                    Some(user)
+                }));
                 if let Some(user) = single {
-                    let handler = handler.clone();
                     let server_name = server_name.clone();
-                    let store_cache = store_cache.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &store_cache, &handler, &server_name).await
+                        Otp::send(&user, &snapshot, &handler, &server_name).await
                     });
                 }
             }
@@ -370,9 +364,16 @@ pub(crate) async fn handle_otp(
             let token = token.unwrap();
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
-                    if let Some(user) = validate_otp(token, store_cache).await {
-                        if let Some(session) =
-                            User::create_session(&user.id, store_cache, None).await
+                    let snapshot = snapshot().await;
+                    if snapshot.is_none() {
+                        return Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
+                    }
+                    let snapshot = snapshot.unwrap();
+                    if let Some(user) = validate_otp(token, &snapshot).await {
+                        if let Some(session) = User::create_session(&user.id, &snapshot, None).await
                         {
                             let mut response = Response::builder();
                             let headers = response.headers_mut().unwrap();
@@ -401,11 +402,11 @@ pub(crate) async fn handle_otp(
         .unwrap()
 }
 
-async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>) -> Option<User> {
+async fn validate_otp(token: &str, store_cache: &Arc<Snapshot>) -> Option<User> {
     let decoded_key = URL_SAFE_NO_PAD.decode_to_vec(token).ok()?;
     let timestamp = u32::from_le_bytes(decoded_key[32..].try_into().ok()?);
     let key = format!("otp/{token}");
-    let otp = store_cache.get_ref().get::<Otp>(key.as_str())?;
+    let otp = store_cache.get::<Otp>(key.as_str())?;
     let _ = Snapshot::delete([key.as_str()].iter()).await;
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -413,7 +414,7 @@ async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>
         .as_secs() as u32;
     if otp.timestamp == 0 {
         let key = format!("acc/{}", otp.user_id);
-        let user = store_cache.get_ref().get(key.as_str())?;
+        let user = store_cache.get(key.as_str())?;
         Some(user)
     } else if otp.timestamp == timestamp {
         let elapsed = now - timestamp;
@@ -421,7 +422,7 @@ async fn validate_otp(token: &str, store_cache: &Arc<NonEmptyPinboard<Snapshot>>
             None
         } else {
             let key = format!("acc/{}", otp.user_id);
-            let user = store_cache.get_ref().get(key.as_str())?;
+            let user = store_cache.get(key.as_str())?;
             Some(user)
         }
     } else {

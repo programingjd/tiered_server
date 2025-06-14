@@ -7,7 +7,6 @@ use basic_cookies::Cookie;
 use hyper::HeaderMap;
 use hyper::header::COOKIE;
 use hyper::http::HeaderValue;
-use pinboard::NonEmptyPinboard;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
@@ -68,7 +67,7 @@ impl Session {
 impl User {
     pub async fn create_session(
         user_id: impl Into<String>,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        snapshot: &Arc<Snapshot>,
         passkey_id: Option<String>,
     ) -> Option<Session> {
         let user_id = user_id.into();
@@ -87,8 +86,7 @@ impl User {
                 .collect::<Vec<_>>(),
         );
         // delete all previous sessions for the user unless they are with a different passkey
-        let session_keys = store_cache
-            .get_ref()
+        let session_keys = snapshot
             .list::<Session>("sid/")
             .filter_map(|(key, session)| {
                 if let Some(ref passkey_id) = passkey_id {
@@ -124,7 +122,7 @@ impl User {
 impl SessionState {
     pub async fn from_headers(
         headers: &HeaderMap<HeaderValue>,
-        store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
+        snapshot: &Arc<Snapshot>,
     ) -> SessionState {
         let cookie_value = headers.get_all(COOKIE).iter().find_map(|it| {
             it.to_str()
@@ -146,12 +144,9 @@ impl SessionState {
             SessionState::Missing
         } else {
             let session_id = cookie_value.unwrap();
-            if let Some(session) = store_cache
-                .get_ref()
-                .get::<Session>(&format!("sid/{session_id}"))
-            {
+            if let Some(session) = snapshot.get::<Session>(&format!("sid/{session_id}")) {
                 let user_id = &session.user_id;
-                if let Some(user) = store_cache.get_ref().get::<User>(&format!("acc/{user_id}")) {
+                if let Some(user) = snapshot.get::<User>(&format!("acc/{user_id}")) {
                     let now = SystemTime::now()
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .unwrap()

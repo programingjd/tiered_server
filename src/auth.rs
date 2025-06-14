@@ -5,7 +5,7 @@ use crate::hex::hex_to_bytes;
 use crate::iter::{pair, single};
 use crate::server::DOMAIN_TITLE;
 use crate::session::{DELETE_SID_COOKIES, DELETE_ST_COOKIES, SID_EXPIRED, SessionState};
-use crate::store::Snapshot;
+use crate::store::{Snapshot, snapshot};
 use crate::user::User;
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
@@ -14,7 +14,6 @@ use hyper::header::{ALLOW, CONTENT_TYPE, LOCATION, SET_COOKIE};
 use hyper::http::HeaderValue;
 use hyper::{Method, Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
-use pinboard::NonEmptyPinboard;
 use ring::digest::{SHA256, digest};
 use ring::hmac::{HMAC_SHA256, Key, Tag, sign};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -430,12 +429,19 @@ fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) ->
 //noinspection DuplicatedCode
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
-    store_cache: &Arc<NonEmptyPinboard<Snapshot>>,
     server_name: Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
-    let session_state = SessionState::from_headers(request.headers(), store_cache).await;
+    let snapshot = snapshot().await;
+    if snapshot.is_none() {
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Either::Right(Empty::new()))
+            .unwrap();
+    }
+    let snapshot = snapshot.unwrap();
+    let session_state = SessionState::from_headers(request.headers(), &snapshot).await;
     let (user, session) = match session_state {
         SessionState::Valid { user, session } => (Some(user), Some(session)),
         SessionState::Expired { user } => (Some(user), None),
@@ -495,10 +501,7 @@ pub(crate) async fn handle_auth(
                     .body(Either::Right(Empty::new()))
                     .unwrap();
             }
-            return if let Some(first) = store_cache
-                .get_ref()
-                .list::<PassKey>(&format!("pk/{}/", user.id))
-                .next()
+            return if let Some(first) = snapshot.list::<PassKey>(&format!("pk/{}/", user.id)).next()
             {
                 debug!("{}", first.0);
                 debug!("204 https://{server_name}/api/auth/credentials");
@@ -541,8 +544,7 @@ pub(crate) async fn handle_auth(
             .and_then(|body| serde_json::from_slice::<ChallengeMetadata>(body.as_ref()).ok())
             .and_then(|metadata| new_challenge(&metadata))
         {
-            let keys = store_cache
-                .get_ref()
+            let keys = snapshot
                 .list::<PassKey>(&format!("pk/{}/", user.id))
                 .map(|(_, key)| Credentials::from_id(key.id))
                 .collect::<Vec<_>>();
@@ -652,7 +654,7 @@ pub(crate) async fn handle_auth(
                         .is_some()
                     {
                         if let Some(session) =
-                            User::create_session(user.id, store_cache, Some(passkey.id)).await
+                            User::create_session(user.id, &snapshot, Some(passkey.id)).await
                         {
                             debug!("200 https://{server_name}/api/auth/record_credential");
                             let mut response = Response::builder().status(StatusCode::OK);
@@ -755,8 +757,7 @@ pub(crate) async fn handle_auth(
             {
                 let passkey_id = i.unwrap();
                 let user_id = u.unwrap();
-                if store_cache
-                    .get_ref()
+                if snapshot
                     .get::<PassKey>(&format!("pk/{user_id}/{passkey_id}"))
                     .filter(|passkey| {
                         passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice())
@@ -764,7 +765,7 @@ pub(crate) async fn handle_auth(
                     .is_some()
                 {
                     if let Some(session) =
-                        User::create_session(user_id, store_cache, Some(passkey_id)).await
+                        User::create_session(user_id, &snapshot, Some(passkey_id)).await
                     {
                         debug!("200 https://{server_name}/api/auth/validate_credential");
                         let mut response = Response::builder().status(StatusCode::OK);
