@@ -78,7 +78,7 @@ pub struct User {
     pub first_name: String,
     pub first_name_norm: String,
     pub date_of_birth: u32,
-    #[serde(skip_serializing_if = "is_default")]
+    #[serde(skip_serializing_if = "is_default", default = "Default::default")]
     pub admin: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,

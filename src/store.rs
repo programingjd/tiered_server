@@ -338,5 +338,10 @@ fn decrypt<T: DeserializeOwned>(nonce: [u8; 12], encrypted_base64: &[u8]) -> Opt
     while encrypted.len() > len {
         encrypted.pop();
     }
-    serde_json::from_reader(encrypted.as_slice()).ok()
+    serde_json::from_reader(encrypted.as_slice())
+        .map_err(|err| {
+            warn!("{err:?}");
+            err
+        })
+        .ok()
 }
