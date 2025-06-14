@@ -3,6 +3,7 @@ use crate::env::ConfigurationKey::{
     StaticGithubBranch, StaticGithubRepository, StaticGithubUser, StaticGithubWebhookToken,
 };
 use crate::env::secret_value;
+use crate::handler::set;
 use crate::headers::{HSelector, POST, X_HUB_SIGNATURE_256_HASH};
 use crate::hex::hex_to_bytes;
 use http_body_util::BodyExt;
@@ -10,16 +11,13 @@ use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::ALLOW;
 use hyper::{Method, Request, Response, StatusCode};
-use pinboard::NonEmptyPinboard;
 use ring::hmac::{HMAC_SHA256, Key, sign, verify};
-use std::sync::Arc;
 use tracing::{debug, info, warn};
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
 
 pub(crate) async fn handle_webhook(
     request: Request<Incoming>,
-    handler: Arc<NonEmptyPinboard<Arc<Handler>>>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let mut response = Response::builder();
     let headers = response.headers_mut().unwrap();
@@ -59,7 +57,7 @@ pub(crate) async fn handle_webhook(
                                 .try_build()
                             {
                                 Ok(static_handler) => {
-                                    handler.set(Arc::new(static_handler));
+                                    set(static_handler);
                                     return response
                                         .status(StatusCode::OK)
                                         .body(Either::Right(Empty::new()))

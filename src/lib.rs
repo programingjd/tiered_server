@@ -4,6 +4,7 @@ mod download;
 mod email;
 pub mod env;
 mod firewalls;
+pub mod handler;
 pub mod headers;
 mod hex;
 mod iter;

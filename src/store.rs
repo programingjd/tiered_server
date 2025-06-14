@@ -67,14 +67,14 @@ fn update_store_cache_loop() {
     });
 }
 
-pub async fn snapshot() -> Option<Arc<Snapshot>> {
+pub async fn snapshot() -> Arc<Snapshot> {
     if let Some(snapshot) = SNAPSHOT.get_ref() {
-        Some(snapshot.clone())
+        snapshot.clone()
     } else {
-        let snapshot = new_snapshot().await?;
-        SNAPSHOT.set(Arc::new(snapshot));
+        let snapshot = Arc::new(new_snapshot().await.expect("failed to create snapshot"));
+        SNAPSHOT.set(snapshot.clone());
         update_store_cache_loop();
-        SNAPSHOT.get_ref().map(|it| it.clone())
+        snapshot
     }
 }
 

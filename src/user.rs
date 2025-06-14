@@ -1,5 +1,6 @@
 use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
+use crate::handler::static_handler;
 use crate::headers::{GET_POST_PUT, JSON};
 use crate::norm::{
     DEFAULT_COUNTRY_CODE, normalize_email, normalize_first_name, normalize_last_name,
@@ -87,9 +88,11 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub(crate) async fn ensure_admin_users_exist(handler: Arc<Handler>) -> Option<()> {
+pub(crate) async fn ensure_admin_users_exist(
+    snapshot: &Arc<Snapshot>,
+    handler: &Arc<Handler>,
+) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
-    let snapshot = snapshot().await?;
     let users = snapshot
         .list::<User>("acc/")
         .map(|(_, user)| user)
@@ -146,8 +149,8 @@ pub(crate) async fn ensure_admin_users_exist(handler: Arc<Handler>) -> Option<()
                 true,
                 false,
                 true,
-                &snapshot,
-                &handler.clone(),
+                snapshot,
+                handler,
                 &Arc::new(server_name),
             )
             .await?;
@@ -242,20 +245,11 @@ impl User {
 #[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
-    handler: Arc<Handler>,
-    server_name: Arc<String>,
+    server_name: &Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot().await;
-        if snapshot.is_none() {
-            debug!("500 /api/user/admin/{path}");
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Either::Right(Empty::new()))
-                .unwrap();
-        }
-        let snapshot = snapshot.unwrap();
         if let SessionState::Valid { user, .. } =
             SessionState::from_headers(request.headers(), &snapshot).await
         {
@@ -364,8 +358,8 @@ pub(crate) async fn handle_user(
                                         || Otp::send_initial(
                                             &user,
                                             &snapshot,
-                                            &handler,
-                                            &server_name,
+                                            &static_handler().await,
+                                            server_name,
                                         )
                                         .await
                                         .is_some())
@@ -477,13 +471,6 @@ pub(crate) async fn handle_user(
                         true
                     };
                     let snapshot = snapshot().await;
-                    if snapshot.is_none() {
-                        return Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
-                            .body(Either::Right(Empty::new()))
-                            .unwrap();
-                    }
-                    let snapshot = snapshot.unwrap();
                     let existing = snapshot.list::<User>("acc/").any(|(_, ref user)| {
                         if let IdentificationMethod::Email(ref email) = user.identification {
                             email_norm == email.normalized_address
@@ -522,8 +509,8 @@ pub(crate) async fn handle_user(
                             needs_moderation,
                             false,
                             &snapshot,
-                            &handler,
-                            &server_name,
+                            &static_handler().await,
+                            server_name,
                         )
                         .await;
                     }
@@ -541,13 +528,6 @@ pub(crate) async fn handle_user(
                 .unwrap();
         } else {
             let snapshot = snapshot().await;
-            if snapshot.is_none() {
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap();
-            }
-            let snapshot = snapshot.unwrap();
             if let SessionState::Valid { user, session } =
                 SessionState::from_headers(request.headers(), &snapshot).await
             {

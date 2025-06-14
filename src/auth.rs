@@ -429,18 +429,11 @@ fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) ->
 //noinspection DuplicatedCode
 pub(crate) async fn handle_auth(
     request: Request<Incoming>,
-    server_name: Arc<String>,
+    server_name: &Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[9..];
     let method = request.method();
     let snapshot = snapshot().await;
-    if snapshot.is_none() {
-        return Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .body(Either::Right(Empty::new()))
-            .unwrap();
-    }
-    let snapshot = snapshot.unwrap();
     let session_state = SessionState::from_headers(request.headers(), &snapshot).await;
     let (user, session) = match session_state {
         SessionState::Valid { user, session } => (Some(user), Some(session)),

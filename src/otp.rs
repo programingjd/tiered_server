@@ -4,6 +4,7 @@ use crate::env::ConfigurationKey::{
     EmailOneTimeLoginTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
+use crate::handler::static_handler;
 use crate::headers::GET;
 use crate::iter::single;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
@@ -247,8 +248,7 @@ pub(crate) fn token_signature(token: &str) -> Option<String> {
 
 pub(crate) async fn handle_otp(
     request: Request<Incoming>,
-    handler: Arc<Handler>,
-    server_name: Arc<String>,
+    server_name: &Arc<String>,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[8..];
     if request.method() == Method::POST {
@@ -297,13 +297,6 @@ pub(crate) async fn handle_otp(
                 let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
                 let first_name_norm = first_name.as_ref().map(|it| normalize_first_name(it));
                 let snapshot = snapshot().await;
-                if snapshot.is_none() {
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap();
-                }
-                let snapshot = snapshot.unwrap();
                 let single = single(snapshot.list::<User>("acc/").filter_map(|(_, user)| {
                     if let Some(ref email_norm) = email_norm {
                         if let IdentificationMethod::Email(ref e) = user.identification {
@@ -335,7 +328,7 @@ pub(crate) async fn handle_otp(
                     let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &snapshot, &handler, &server_name).await
+                        Otp::send(&user, &snapshot, &static_handler().await, &server_name).await
                     });
                 }
             }
@@ -365,13 +358,6 @@ pub(crate) async fn handle_otp(
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
                     let snapshot = snapshot().await;
-                    if snapshot.is_none() {
-                        return Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
-                            .body(Either::Right(Empty::new()))
-                            .unwrap();
-                    }
-                    let snapshot = snapshot.unwrap();
                     if let Some(user) = validate_otp(token, &snapshot).await {
                         if let Some(session) = User::create_session(&user.id, &snapshot, None).await
                         {

@@ -1,14 +1,10 @@
 extern crate rustls as extern_rustls;
 
 use crate::api::{Extension, handle_api};
-use crate::download::download;
-use crate::env::ConfigurationKey::{
-    BindAddress, DomainApex, DomainTitle, StaticGithubBranch, StaticGithubRepository,
-    StaticGithubUser,
-};
+use crate::env::ConfigurationKey::{BindAddress, DomainApex, DomainTitle};
 use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
-use crate::headers::HSelector;
+use crate::handler::static_handler;
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
 use crate::push_webhook::handle_webhook;
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
@@ -39,8 +35,6 @@ use tokio::net::TcpListener;
 use tokio::spawn;
 use tokio_rustls::LazyConfigAcceptor;
 use tracing::debug;
-use zip_static_handler::github::zip_download_branch_url;
-use zip_static_handler::handler::Handler;
 use zip_static_handler::http::headers::CONTENT_TYPE;
 
 const HTML: &[u8] = b"text/html";
@@ -126,35 +120,15 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
         github_ip_ranges.clone(),
     );
 
-    let github_user =
-        secret_value(StaticGithubUser).expect("missing github user for static content repository");
-    let github_repository = secret_value(StaticGithubRepository)
-        .expect("missing github repository name for static content repository");
-    let github_branch = secret_value(StaticGithubBranch)
-        .expect("missing github repository branch for static content repository");
-    let zip = download(&zip_download_branch_url(
-        github_user,
-        github_repository,
-        github_branch,
-    ))
-    .await
-    .expect("failed to download static content");
     let api_path_prefix = API_PATH_PREFIX.deref();
     let user_path_prefix = USER_PATH_PREFIX.deref();
     let login_path = *LOGIN_PATH.deref();
     let listener = TcpListener::bind((secret_value(BindAddress).unwrap_or("0.0.0.0"), 443u16))
         .await
         .expect("could not bind to 443");
-    let static_handler = Handler::builder()
-        .with_custom_header_selector(&HSelector)
-        .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
-        .with_zip(zip)
-        .try_build()
-        .expect("failed to extract static content");
 
-    let _ = snapshot().await.expect("failed to cache store content");
-    let static_handler = Arc::new(NonEmptyPinboard::new(Arc::new(static_handler)));
-    ensure_admin_users_exist(static_handler.get_ref().clone())
+    let _ = snapshot().await;
+    ensure_admin_users_exist(&snapshot().await, &static_handler().await)
         .await
         .expect("failed to get or create admin users");
 
@@ -163,7 +137,6 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
             let firewall = firewall.clone();
             let webhook_firewall = webhook_firewall.clone();
             let config = config.clone();
-            let static_handler = static_handler.clone();
             spawn(async move {
                 let acceptor = LazyConfigAcceptor::new(Acceptor::default(), tcp_stream);
                 if let Ok(start_handshake) = acceptor.await {
@@ -187,7 +160,6 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                 io,
                                 service_fn(move |request| {
                                     let server_name = server_name.clone();
-                                    let handler = static_handler.clone();
                                     async move {
                                         let path = request.uri().path();
                                         debug!("{} https://{server_name}{path}", request.method());
@@ -195,96 +167,86 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                         // that the static content should be updated
                                         if is_webhook {
                                             Ok::<_, Infallible>(
-                                                handle_webhook(request, handler).await,
+                                                handle_webhook(request).await,
                                             )
                                         }
                                         // api requests
-                                        else if api_path_prefix.matches(path) {
-                                            let handler: Arc<Handler> = handler.get_ref().clone();
+                                        else {
+                                            let handler = static_handler().await;
+                                            if api_path_prefix.matches(path) {
                                             Ok::<_, Infallible>(
-                                                handle_api(request, handler, server_name, extension).await,
+                                                handle_api(request, &server_name, extension).await,
                                             )
-                                        } else {
-                                            let handler: Arc<Handler> = handler.get_ref().clone();
-                                            if user_path_prefix.matches(path) {
-                                                // user scoped html pages that require login
-                                                if let Some(HTML) =
-                                                    handler.entry(path).and_then(|it| {
-                                                        it.headers.iter().find_map(|it| {
-                                                            if it.key == CONTENT_TYPE {
-                                                                Some(it.value.as_ref())
-                                                            } else {
-                                                                None
-                                                            }
+                                            } else {
+                                                if user_path_prefix.matches(path) {
+                                                    // user scoped html pages that require login
+                                                    if let Some(HTML) =
+                                                        handler.entry(path).and_then(|it| {
+                                                            it.headers.iter().find_map(|it| {
+                                                                if it.key == CONTENT_TYPE {
+                                                                    Some(it.value.as_ref())
+                                                                } else {
+                                                                    None
+                                                                }
+                                                            })
                                                         })
-                                                    })
-                                                {
-                                                    let snapshot = snapshot().await;
-                                                    if snapshot.is_none() {
-                                                        return Ok::<_, Infallible>(
-                                                            Response::builder()
-                                                                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                                                                .body(Either::Right(
-                                                                    Empty::new(),
-                                                                ))
-                                                                .unwrap(),
-                                                        );
-                                                    }
-                                                    let snapshot = snapshot.unwrap();
-                                                    match SessionState::from_headers(
-                                                        request.headers(),
-                                                        &snapshot,
-                                                    )
-                                                    .await
                                                     {
-                                                        SessionState::Valid { .. } => {}
-                                                        _ => {
-                                                            // redirect to the login page
-                                                            let response = match request.method() {
-                                                                &Method::HEAD | &Method::GET => {
-                                                                    debug!("302 https://{server_name}{path}");
-                                                                    let mut response =
-                                                                        Response::builder().status(
-                                                                            StatusCode::FOUND,
+                                                        let snapshot = snapshot().await;
+                                                        match SessionState::from_headers(
+                                                            request.headers(),
+                                                            &snapshot,
+                                                        )
+                                                        .await
+                                                        {
+                                                            SessionState::Valid { .. } => {}
+                                                            _ => {
+                                                                // redirect to the login page
+                                                                let response = match request.method() {
+                                                                    &Method::HEAD | &Method::GET => {
+                                                                        debug!("302 https://{server_name}{path}");
+                                                                        let mut response =
+                                                                            Response::builder().status(
+                                                                                StatusCode::FOUND,
+                                                                            );
+                                                                        let headers = response
+                                                                            .headers_mut()
+                                                                            .unwrap();
+                                                                        headers.insert(
+                                                                            LOCATION,
+                                                                            HeaderValue::from_static(
+                                                                                login_path,
+                                                                            ),
                                                                         );
-                                                                    let headers = response
-                                                                        .headers_mut()
-                                                                        .unwrap();
-                                                                    headers.insert(
-                                                                        LOCATION,
-                                                                        HeaderValue::from_static(
-                                                                            login_path,
-                                                                        ),
-                                                                    );
-                                                                    headers.append(
-                                                                        SET_COOKIE,
-                                                                        SID_EXPIRED,
-                                                                    );
+                                                                        headers.append(
+                                                                            SET_COOKIE,
+                                                                            SID_EXPIRED,
+                                                                        );
+                                                                        response
+                                                                    }
+                                                                    _ => {
+                                                                        debug!("403 https://{server_name}{path}");
+                                                                        Response::builder().status(
+                                                                            StatusCode::FORBIDDEN,
+                                                                        )
+                                                                    }
+                                                                };
+                                                                return Ok::<_, Infallible>(
                                                                     response
-                                                                }
-                                                                _ => {
-                                                                    debug!("403 https://{server_name}{path}");
-                                                                    Response::builder().status(
-                                                                        StatusCode::FORBIDDEN,
-                                                                    )
-                                                                }
-                                                            };
-                                                            return Ok::<_, Infallible>(
-                                                                response
-                                                                    .body(Either::Right(
-                                                                        Empty::new(),
-                                                                    ))
-                                                                    .unwrap(),
-                                                            );
+                                                                        .body(Either::Right(
+                                                                            Empty::new(),
+                                                                        ))
+                                                                        .unwrap(),
+                                                                );
+                                                            }
                                                         }
                                                     }
                                                 }
+                                                // static content
+                                                let path = path.to_string();
+                                                let response = handler.handle_hyper_request(request);
+                                                debug!("{} https://{server_name}{path}", response.status().as_u16());
+                                                Ok::<_, Infallible>(response)
                                             }
-                                            // static content
-                                            let path = path.to_string();
-                                            let response = handler.handle_hyper_request(request);
-                                            debug!("{} https://{server_name}{path}", response.status().as_u16());
-                                            Ok::<_, Infallible>(response)
                                         }
                                     }
                                 }),
