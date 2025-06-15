@@ -185,7 +185,7 @@ impl Snapshot {
         match store.put(&path, payload).await {
             Ok(_) => {
                 if skip_update {
-                    sleep(Duration::from_millis(50)).await;
+                    sleep(Duration::from_millis(10)).await;
                     Some(())
                 } else {
                     let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
