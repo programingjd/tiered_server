@@ -29,15 +29,14 @@ static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
     map
 });
 
-static ENV: LazyLock<HashMap<ConfigurationKey, &'static str>> = LazyLock::new(|| {
-    let mut map = HashMap::<ConfigurationKey, &'static str>::new();
-    ConfigurationKey::all().for_each(|it| {
-        if let Some(ref value) = std::env::var_os(it.name()) {
-            if let Some(v) = value.to_str() {
-                info!("{} loaded from environment variable", it.name());
-                map.insert(it, v.to_string().leak());
-            }
-        }
+static ENV: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
+    let mut map = BTreeMap::<&'static str, &'static str>::new();
+    std::env::vars().for_each(|(key, value)| {
+        info!("{key} loaded from environment variable");
+        map.insert(
+            key.trim().to_string().leak(),
+            value.trim().to_string().leak(),
+        );
     });
     map
 });
@@ -79,42 +78,6 @@ pub enum ConfigurationKey {
 }
 
 impl ConfigurationKey {
-    fn all() -> impl Iterator<Item = Self> {
-        [
-            Self::DomainApex,
-            Self::DomainTitle,
-            Self::BindAddress,
-            Self::StaticGithubUser,
-            Self::StaticGithubRepository,
-            Self::StaticGithubBranch,
-            Self::StaticGithubWebhookToken,
-            Self::S3Region,
-            Self::S3Endpoint,
-            Self::S3Bucket,
-            Self::S3AccessKey,
-            Self::S3SecretKey,
-            Self::StoreEncryptionKey,
-            Self::OtpSigningKey,
-            Self::ChallengeSigningKey,
-            Self::ApiPathPrefix,
-            Self::UserPathPrefix,
-            Self::LoginPath,
-            Self::ValidationTotpSecret,
-            Self::DefaultCountryCode,
-            Self::EmailApiEndpoint,
-            Self::EmailApiAuthHeader,
-            Self::EmailApiAuthToken,
-            Self::EmailApiMethod,
-            Self::EmailApiRequestContentType,
-            Self::EmailSendAddress,
-            Self::EmailOneTimeLoginTitle,
-            Self::EmailOneTimeLoginTemplate,
-            Self::EmailAccountCreatedTitle,
-            Self::EmailAccountCreatedTemplate,
-            Self::AdminUsers,
-        ]
-        .into_iter()
-    }
     fn name(&self) -> &'static str {
         match self {
             Self::DomainApex => "DOMAIN_APEX",
@@ -154,7 +117,7 @@ impl ConfigurationKey {
 }
 
 pub fn secret_value(key: ConfigurationKey) -> Option<&'static str> {
-    match ENV.get(&key).or_else(|| FILE.get(key.name())) {
+    match ENV.get(key.name()).or_else(|| FILE.get(key.name())) {
         Some(value) => Some(*value),
         None => None,
     }

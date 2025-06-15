@@ -2335,7 +2335,7 @@ dependencies = [
 
 [[package]]
 name = "tiered_server"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "base64-simd",
  "basic-cookies",
