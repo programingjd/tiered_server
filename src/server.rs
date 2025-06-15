@@ -164,7 +164,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                         debug!("{} https://{server_name}{path}", request.method());
                                         // webhook call from the GitHub repository that notifies
                                         // that the static content should be updated
-                                        if is_webhook {
+                                        if is_webhook || path == "/github_push_webhook" {
                                             Ok::<_, Infallible>(
                                                 handle_webhook(request).await,
                                             )
