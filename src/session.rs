@@ -39,6 +39,15 @@ pub enum SessionState {
     },
 }
 
+impl SessionState {
+    pub fn is_admin(&self) -> bool {
+        match self {
+            SessionState::Valid { user, .. } => user.admin,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Session {
     pub(crate) id: String,
