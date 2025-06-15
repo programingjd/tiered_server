@@ -1,15 +1,17 @@
 [package]
 name = "tiered_server"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.85"
 
 [dependencies.zip_static_handler]
 version = "0.18"
+default-features = false
 features = ["hyper"]
 
 [dependencies.firewall]
 version = "0.3"
+default-features = false
 features = ["github_webhook", "cloudflare", "rustls"]
 
 [dependencies.basic-cookies]
@@ -69,10 +71,12 @@ features = ["fs", "aws", "tls-webpki-roots"]
 
 [dependencies.futures-lite]
 version = "2.6"
+default-features = false
 features = ["std"]
 
 [dependencies.reqwest]
 version = "0.12"
+default-features = false
 features = ["blocking", "rustls-tls", "multipart", "json"]
 
 [dependencies.hyper]
