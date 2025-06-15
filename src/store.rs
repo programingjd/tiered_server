@@ -113,6 +113,9 @@ pub async fn new_snapshot() -> Option<Snapshot> {
     while let Some(metadata) = iter.next().await {
         match metadata {
             Ok(metadata) => {
+                if metadata.size == 0 {
+                    continue;
+                }
                 let timestamp = metadata.last_modified.timestamp() as u32;
                 let reference = SNAPSHOT.get_ref().map(|it| it.clone());
                 let data = if let Some(existing) = reference
@@ -123,7 +126,14 @@ pub async fn new_snapshot() -> Option<Snapshot> {
                     existing.data.clone()
                 } else {
                     debug!("new cache entry: {}", &metadata.location);
-                    let result = store.get(&metadata.location).await.ok()?;
+                    let result = store
+                        .get(&metadata.location)
+                        .await
+                        .map_err(|err| {
+                            warn!("{err:?}");
+                            err
+                        })
+                        .ok()?;
                     download(result.payload).await?
                 };
                 entries.insert(metadata.location.into(), Entry { timestamp, data });
@@ -312,7 +322,10 @@ async fn download(payload: GetResultPayload) -> Option<Vec<u8>> {
             while let Some(result) = stream.next().await {
                 match result {
                     Ok(chunk) => vec.extend(chunk.iter()),
-                    Err(_) => return None,
+                    Err(err) => {
+                        warn!("{err:?}");
+                        return None;
+                    }
                 }
             }
         }
