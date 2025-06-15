@@ -78,9 +78,18 @@ pub fn snapshot() -> Arc<Snapshot> {
                     .enable_io()
                     .build()
                     .unwrap()
-                    .block_on(async move { new_snapshot().await })
+                    .block_on(async move {
+                        new_snapshot().await.or_else(|| {
+                            warn!("failed to create snapshot");
+                            None
+                        })
+                    })
             })
             .join()
+            .map_err(|err| {
+                warn!("{err:?}");
+                err
+            })
             .ok()
             .flatten()
             .expect("failed to create snapshot"),
@@ -102,24 +111,28 @@ pub async fn new_snapshot() -> Option<Snapshot> {
         HashMap::with_capacity(256 + reference.map(|it| it.entries.len()).unwrap_or(256));
     let mut iter = store.list(None);
     while let Some(metadata) = iter.next().await {
-        if metadata.is_err() {
-            return None;
+        match metadata {
+            Ok(metadata) => {
+                let timestamp = metadata.last_modified.timestamp() as u32;
+                let reference = SNAPSHOT.get_ref().map(|it| it.clone());
+                let data = if let Some(existing) = reference
+                    .as_ref()
+                    .and_then(|it| it.entries.get(metadata.location.as_ref()))
+                    .filter(|it| it.timestamp == timestamp)
+                {
+                    existing.data.clone()
+                } else {
+                    debug!("new cache entry: {}", &metadata.location);
+                    let result = store.get(&metadata.location).await.ok()?;
+                    download(result.payload).await?
+                };
+                entries.insert(metadata.location.into(), Entry { timestamp, data });
+            }
+            Err(err) => {
+                warn!("{err:?}");
+                return None;
+            }
         }
-        let metadata = metadata.unwrap();
-        let timestamp = metadata.last_modified.timestamp() as u32;
-        let reference = SNAPSHOT.get_ref().map(|it| it.clone());
-        let data = if let Some(existing) = reference
-            .as_ref()
-            .and_then(|it| it.entries.get(metadata.location.as_ref()))
-            .filter(|it| it.timestamp == timestamp)
-        {
-            existing.data.clone()
-        } else {
-            debug!("new cache entry: {}", &metadata.location);
-            let result = store.get(&metadata.location).await.ok()?;
-            download(result.payload).await?
-        };
-        entries.insert(metadata.location.into(), Entry { timestamp, data });
     }
     Some(Snapshot { entries, timestamp })
 }
