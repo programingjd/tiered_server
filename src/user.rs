@@ -242,11 +242,16 @@ impl User {
     }
 }
 
+pub(crate) enum RequestOrResponse {
+    Req(Request<Incoming>),
+    Res(Response<Either<Full<Bytes>, Empty<Bytes>>>),
+}
+
 #[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
     server_name: &Arc<String>,
-) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+) -> RequestOrResponse {
     let path = &request.uri().path()[9..];
     if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot();
@@ -257,11 +262,13 @@ pub(crate) async fn handle_user(
                 if path == "/reg/code" {
                     if let Some(secret) = *VALIDATION_TOTP_SECRET {
                         debug!("200 https://{server_name}/api/user/admin/reg/code");
-                        return Response::builder()
-                            .status(StatusCode::OK)
-                            .header(CONTENT_TYPE, TEXT)
-                            .body(Either::Left(Full::from(secret)))
-                            .unwrap();
+                        return RequestOrResponse::Res(
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header(CONTENT_TYPE, TEXT)
+                                .body(Either::Left(Full::from(secret)))
+                                .unwrap(),
+                        );
                     }
                 } else if path == "/reg" {
                     if request.method() == Method::GET {
@@ -297,22 +304,26 @@ pub(crate) async fn handle_user(
                                 }
                             })
                             .collect::<Vec<_>>();
-                        return Response::builder()
-                            .status(StatusCode::OK)
-                            .header(CONTENT_TYPE, JSON)
-                            .body(Either::Left(Full::from(
-                                serde_json::to_vec(&users).unwrap(),
-                            )))
-                            .unwrap();
+                        return RequestOrResponse::Res(
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header(CONTENT_TYPE, JSON)
+                                .body(Either::Left(Full::from(
+                                    serde_json::to_vec(&users).unwrap(),
+                                )))
+                                .unwrap(),
+                        );
                     } else if request.method() != Method::POST {
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
                         headers.insert(ALLOW, GET_POST_PUT);
                         debug!("405 https://{server_name}/api/user");
-                        return response
-                            .status(StatusCode::METHOD_NOT_ALLOWED)
-                            .body(Either::Right(Empty::new()))
-                            .unwrap();
+                        return RequestOrResponse::Res(
+                            response
+                                .status(StatusCode::METHOD_NOT_ALLOWED)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
                     }
                     if let Some(boundary) = request
                         .headers()
@@ -368,23 +379,42 @@ pub(crate) async fn handle_user(
                                         .is_some())
                                 {
                                     debug!("202 https://{server_name}/api/user/admin/reg");
-                                    return Response::builder()
-                                        .status(StatusCode::ACCEPTED)
-                                        .body(Either::Right(Empty::new()))
-                                        .unwrap();
+                                    return RequestOrResponse::Res(
+                                        Response::builder()
+                                            .status(StatusCode::ACCEPTED)
+                                            .body(Either::Right(Empty::new()))
+                                            .unwrap(),
+                                    );
                                 }
                             }
                         }
                     }
                     debug!("400 https://{server_name}/api/user/admin/reg");
-                    return Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap();
+                    return RequestOrResponse::Res(
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap(),
+                    );
                 }
+            } else {
+                debug!("403 https://{server_name}/api/user/admin{path}");
+                return RequestOrResponse::Res(
+                    Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap(),
+                );
             }
+        } else {
+            debug!("403 https://{server_name}/api/user/admin{path}");
+            return RequestOrResponse::Res(
+                Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap(),
+            );
         }
-        debug!("403 /api/user/admin/{path}");
     } else if path == "/" || path.is_empty() {
         if request.method() == Method::PUT {
             if let Some(boundary) = request
@@ -462,10 +492,12 @@ pub(crate) async fn handle_user(
                                 false
                             } else {
                                 debug!("403 /api/user");
-                                return Response::builder()
-                                    .status(StatusCode::FORBIDDEN)
-                                    .body(Either::Right(Empty::new()))
-                                    .unwrap();
+                                return RequestOrResponse::Res(
+                                    Response::builder()
+                                        .status(StatusCode::FORBIDDEN)
+                                        .body(Either::Right(Empty::new()))
+                                        .unwrap(),
+                                );
                             }
                         } else {
                             true
@@ -518,17 +550,21 @@ pub(crate) async fn handle_user(
                         .await;
                     }
                     debug!("202 https://{server_name}/api/user");
-                    return Response::builder()
-                        .status(StatusCode::ACCEPTED)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap();
+                    return RequestOrResponse::Res(
+                        Response::builder()
+                            .status(StatusCode::ACCEPTED)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap(),
+                    );
                 }
             }
             debug!("400 https://{server_name}/api/user");
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Either::Right(Empty::new()))
-                .unwrap();
+            return RequestOrResponse::Res(
+                Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap(),
+            );
         } else {
             let snapshot = snapshot();
             if let SessionState::Valid { user, session } =
@@ -558,40 +594,48 @@ pub(crate) async fn handle_user(
                         metadata: Option<Value>,
                     }
                     debug!("200 https://{server_name}/api/user");
-                    return Response::builder()
-                        .status(StatusCode::OK)
-                        .header(CONTENT_TYPE, JSON)
-                        .body(Either::Left(Full::from(
-                            serde_json::to_vec(&UserResponse {
-                                first_name: user.first_name,
-                                last_name: user.last_name,
-                                date_of_birth: user.date_of_birth,
-                                email,
-                                sms,
-                                session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
-                                session_from_passkey: session.passkey_id.is_some(),
-                                admin: user.admin,
-                                metadata: user.metadata,
-                            })
+                    return RequestOrResponse::Res(
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header(CONTENT_TYPE, JSON)
+                            .body(Either::Left(Full::from(
+                                serde_json::to_vec(&UserResponse {
+                                    first_name: user.first_name,
+                                    last_name: user.last_name,
+                                    date_of_birth: user.date_of_birth,
+                                    email,
+                                    sms,
+                                    session_expiration_timestamp: session.timestamp
+                                        + SESSION_MAX_AGE,
+                                    session_from_passkey: session.passkey_id.is_some(),
+                                    admin: user.admin,
+                                    metadata: user.metadata,
+                                })
+                                .unwrap(),
+                            )))
                             .unwrap(),
-                        )))
-                        .unwrap();
+                    );
                 } else {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET_POST_PUT);
                     debug!("405 https://{server_name}/api/user");
-                    return response
-                        .status(StatusCode::METHOD_NOT_ALLOWED)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap();
+                    return RequestOrResponse::Res(
+                        response
+                            .status(StatusCode::METHOD_NOT_ALLOWED)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap(),
+                    );
                 }
             }
         }
         debug!("403 https://{server_name}/api/user");
+        return RequestOrResponse::Res(
+            Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Either::Right(Empty::new()))
+                .unwrap(),
+        );
     }
-    Response::builder()
-        .status(StatusCode::FORBIDDEN)
-        .body(Either::Right(Empty::new()))
-        .unwrap()
+    RequestOrResponse::Req(request)
 }
