@@ -35,7 +35,8 @@ pub(crate) async fn handle_webhook(
             .get(X_HUB_SIGNATURE_256_HASH)
             .and_then(|it| it.as_bytes().strip_prefix(b"sha256="))
         {
-            let hash_bytes = match hex_to_bytes(hash_hex, Vec::with_capacity(32)) {
+            let hash_hex = hash_hex.to_vec();
+            let hash_bytes = match hex_to_bytes(&hash_hex, Vec::with_capacity(32)) {
                 Some(it) => it,
                 None => {
                     warn!("invalid hash");
@@ -43,7 +44,7 @@ pub(crate) async fn handle_webhook(
                         .status(StatusCode::BAD_REQUEST)
                         .body(Either::Right(Empty::new()))
                         .unwrap();
-                }           
+                }
             };
             let key = Key::new(HMAC_SHA256, webhook_token.as_bytes());
             if let Ok(body) = request.collect().await.map(|it| it.to_bytes()) {
