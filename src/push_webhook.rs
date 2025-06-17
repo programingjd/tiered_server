@@ -30,15 +30,24 @@ pub(crate) async fn handle_webhook(
             .unwrap();
     }
     if let Some(webhook_token) = secret_value(StaticGithubWebhookToken) {
-        if let Some(hash) = request
+        if let Some(hash_hex) = request
             .headers()
             .get(X_HUB_SIGNATURE_256_HASH)
             .and_then(|it| it.as_bytes().strip_prefix(b"sha256="))
-            .and_then(|it| hex_to_bytes(it, Vec::with_capacity(32)))
         {
+            let hash_bytes = match hex_to_bytes(hash_hex, Vec::with_capacity(32)) {
+                Some(it) => it,
+                None => {
+                    warn!("invalid hash");
+                    return response
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap();
+                }           
+            };
             let key = Key::new(HMAC_SHA256, webhook_token.as_bytes());
             if let Ok(body) = request.collect().await.map(|it| it.to_bytes()) {
-                if verify(&key, body.as_ref(), hash.as_slice()).is_ok() {
+                if verify(&key, body.as_ref(), hash_bytes.as_slice()).is_ok() {
                     let github_user = secret_value(StaticGithubUser).unwrap();
                     let github_repository = secret_value(StaticGithubRepository).unwrap();
                     let github_branch = secret_value(StaticGithubBranch).unwrap();
@@ -79,7 +88,7 @@ pub(crate) async fn handle_webhook(
                 } else {
                     info!(
                         "webhook signature mismatch:\n{} != {}",
-                        bytes_to_hex(&hash),
+                        hash_hex.escape_ascii(),
                         bytes_to_hex(&sign(&key, body.as_ref()).as_ref())
                     );
                 }
