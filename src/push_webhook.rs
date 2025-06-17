@@ -90,7 +90,7 @@ pub(crate) async fn handle_webhook(
                     info!(
                         "webhook signature mismatch:\n{} != {}",
                         hash_hex.escape_ascii(),
-                        bytes_to_hex(&sign(&key, body.as_ref()).as_ref())
+                        bytes_to_hex(sign(&key, body.as_ref()).as_ref())
                     );
                 }
             }
