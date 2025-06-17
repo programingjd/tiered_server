@@ -184,13 +184,7 @@ impl Otp {
         let mut random = [0u8; 36];
         random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
         SystemRandom::new().fill(&mut random[..32]).unwrap();
-        let id = URL_SAFE_NO_PAD.encode_to_string(
-            timestamp
-                .to_le_bytes()
-                .into_iter()
-                .chain(random.into_iter())
-                .collect::<Vec<_>>(),
-        );
+        let id = URL_SAFE_NO_PAD.encode_to_string(&random);
         let key = format!("otp/{id}");
         let otp = Self {
             id,
@@ -358,24 +352,76 @@ pub(crate) async fn handle_otp(
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
                     let snapshot = snapshot();
-                    if let Some(user) = validate_otp(token, &snapshot).await {
-                        if let Some(session) = User::create_session(&user.id, &snapshot, None).await
-                        {
-                            let mut response = Response::builder();
-                            let headers = response.headers_mut().unwrap();
-                            session.cookies().into_iter().for_each(|cookie| {
-                                headers.append(SET_COOKIE, cookie);
-                            });
-                            headers.insert(
-                                LOCATION,
-                                HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
-                            );
-                            debug!("307 /api/otp{path}");
-                            return response
-                                .status(StatusCode::TEMPORARY_REDIRECT)
+                    let vec = URL_SAFE_NO_PAD.decode_to_vec(token).ok();
+                    let timestamp =
+                        vec.and_then(|it| it[32..].try_into().ok().map(u32::from_le_bytes));
+                    return if let Some(timestamp) = timestamp {
+                        let key = format!("otp/{token}");
+                        let otp = snapshot.get::<Otp>(key.as_str());
+                        if let Some(otp) = otp {
+                            let _ = Snapshot::delete([key.as_str()].iter()).await;
+                            if otp.timestamp != 0 {
+                                let now = SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs() as u32;
+                                let elapsed = now - timestamp;
+                                if otp.timestamp != timestamp || timestamp > now {
+                                    debug!("400 /api/otp{path}");
+                                    return Response::builder()
+                                        .status(StatusCode::BAD_REQUEST)
+                                        .body(Either::Right(Empty::new()))
+                                        .unwrap();
+                                }
+                                if elapsed > OTP_VALIDITY_DURATION {
+                                    debug!("410 /api/otp{path}");
+                                    return Response::builder()
+                                        .status(StatusCode::GONE)
+                                        .body(Either::Right(Empty::new()))
+                                        .unwrap();
+                                }
+                            }
+                            let key = format!("acc/{}", otp.user_id);
+                            if let Some(user) = snapshot.get::<User>(key.as_str()) {
+                                if let Some(session) =
+                                    User::create_session(&user.id, &snapshot, None).await
+                                {
+                                    let mut response = Response::builder();
+                                    let headers = response.headers_mut().unwrap();
+                                    session.cookies().into_iter().for_each(|cookie| {
+                                        headers.append(SET_COOKIE, cookie);
+                                    });
+                                    headers.insert(
+                                        LOCATION,
+                                        HeaderValue::from_static(
+                                            USER_PATH_PREFIX.without_trailing_slash,
+                                        ),
+                                    );
+                                    debug!("307 /api/otp{path}");
+                                    return response
+                                        .status(StatusCode::TEMPORARY_REDIRECT)
+                                        .body(Either::Right(Empty::new()))
+                                        .unwrap();
+                                };
+                            }
+                            debug!("500 /api/otp{path}");
+                            Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
                                 .body(Either::Right(Empty::new()))
-                                .unwrap();
-                        };
+                                .unwrap()
+                        } else {
+                            debug!("409 /api/otp{path}");
+                            Response::builder()
+                                .status(StatusCode::CONFLICT)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap()
+                        }
+                    } else {
+                        debug!("400 /api/otp{path}");
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap()
                     };
                 }
             }
@@ -386,32 +432,4 @@ pub(crate) async fn handle_otp(
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))
         .unwrap()
-}
-
-async fn validate_otp(token: &str, store_cache: &Arc<Snapshot>) -> Option<User> {
-    let decoded_key = URL_SAFE_NO_PAD.decode_to_vec(token).ok()?;
-    let timestamp = u32::from_le_bytes(decoded_key[32..].try_into().ok()?);
-    let key = format!("otp/{token}");
-    let otp = store_cache.get::<Otp>(key.as_str())?;
-    let _ = Snapshot::delete([key.as_str()].iter()).await;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as u32;
-    if otp.timestamp == 0 {
-        let key = format!("acc/{}", otp.user_id);
-        let user = store_cache.get(key.as_str())?;
-        Some(user)
-    } else if otp.timestamp == timestamp {
-        let elapsed = now - timestamp;
-        if timestamp > now || elapsed > OTP_VALIDITY_DURATION {
-            None
-        } else {
-            let key = format!("acc/{}", otp.user_id);
-            let user = store_cache.get(key.as_str())?;
-            Some(user)
-        }
-    } else {
-        None
-    }
 }

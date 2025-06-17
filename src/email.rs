@@ -3,6 +3,7 @@ use crate::env::ConfigurationKey::{
     EmailApiRequestContentType, EmailSendAddress,
 };
 use crate::env::secret_value;
+use crate::server::DOMAIN_TITLE;
 use reqwest::Client;
 use reqwest::multipart::Form;
 use serde::Serialize;
@@ -53,7 +54,8 @@ impl<'a> Email<'a> {
             "multipart/form-data" => {
                 let form = Form::new();
                 let form = if let Some(from) = from {
-                    form.text("from", from)
+                    let display_name = *DOMAIN_TITLE;
+                    form.text("from", format!("\"{display_name}\" <{from}>"))
                 } else {
                     form
                 }
