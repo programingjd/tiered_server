@@ -13,7 +13,7 @@ pub const POST: HeaderValue = HeaderValue::from_static("POST");
 pub const GET_POST_PUT: HeaderValue = HeaderValue::from_static("GET, POST, PUT");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
-    HeaderName::from_static("x-hub-signature-256-hash");
+    HeaderName::from_static("x-hub-signature-256");
 pub const X_ROBOTS_TAG: &[u8] = b"x-robots-tag";
 pub const NOINDEX: &[u8] = b"noindex";
 pub const CLOUDFLARE_CDN_CACHE_CONTROL: &[u8] = b"cloudflare-cdn-cache-control";
