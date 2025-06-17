@@ -35,7 +35,7 @@ static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
         .initial(
             secret_value(ConfigurationKey::StoreRateLimit)
                 .and_then(|it| it.parse().ok())
-                .unwrap_or(100),
+                .unwrap_or(1000),
         )
         .interval(Duration::from_secs(1))
         .build()
@@ -57,7 +57,8 @@ static CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
 fn update_store_cache_loop() {
     CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
     thread::spawn(move || {
-        tokio::runtime::Builder::new_current_thread()
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
             .enable_time()
             .enable_io()
             .build()
@@ -116,13 +117,24 @@ pub fn snapshot() -> Arc<Snapshot> {
 
 pub async fn new_snapshot() -> Option<Snapshot> {
     let reference = SNAPSHOT.get_ref();
+    let reference = reference.as_deref();
+    let len = if let Some(reference) = reference {
+        let len = reference.entries.len();
+        trace!(
+            "update snapshot with reference: {} ({len})",
+            reference.timestamp,
+        );
+        256 + len
+    } else {
+        trace!("update snapshot without reference");
+        256
+    };
     let timestamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs() as u32;
     let store = store()?;
-    let mut entries =
-        HashMap::with_capacity(256 + reference.map(|it| it.entries.len()).unwrap_or(256));
+    let mut entries = HashMap::with_capacity(len);
     let mut iter = store.list(None);
     let mut pending = vec![];
     let store = Arc::new(store);
@@ -133,17 +145,24 @@ pub async fn new_snapshot() -> Option<Snapshot> {
                     continue;
                 }
                 let timestamp = metadata.last_modified.timestamp() as u32;
-                let reference = SNAPSHOT.get_ref().map(|it| it.clone());
-                if let Some(existing) = reference
-                    .as_ref()
-                    .and_then(|it| it.entries.get(metadata.location.as_ref()))
-                    .filter(|it| it.timestamp == timestamp)
+                if let Some(existing) =
+                    reference.and_then(|it| it.entries.get(metadata.location.as_ref()))
                 {
-                    let data = existing.data.clone();
-                    entries.insert(metadata.location.into(), Entry { timestamp, data });
+                    if existing.timestamp == timestamp {
+                        let data = existing.data.clone();
+                        entries.insert(metadata.location.into(), Entry { timestamp, data });
+                    } else {
+                        let store = store.clone();
+                        pending.push(download_entry(
+                            metadata.location,
+                            timestamp,
+                            store,
+                            Some(existing.timestamp),
+                        ));
+                    }
                 } else {
                     let store = store.clone();
-                    pending.push(download_entry(metadata.location, store));
+                    pending.push(download_entry(metadata.location, timestamp, store, None));
                 };
             }
             Err(err) => {
@@ -153,7 +172,7 @@ pub async fn new_snapshot() -> Option<Snapshot> {
         }
     }
     if !pending.is_empty() {
-        for (key, data) in try_join_all(pending).await.ok()? {
+        for (key, timestamp, data) in try_join_all(pending).await.ok()? {
             entries.insert(key, Entry { timestamp, data });
         }
     }
@@ -162,14 +181,23 @@ pub async fn new_snapshot() -> Option<Snapshot> {
 
 async fn download_entry(
     path: Path,
+    timestamp: u32,
     store: Arc<Box<dyn ObjectStore>>,
-) -> Result<(String, Vec<u8>), ()> {
+    existing: Option<u32>,
+) -> Result<(String, u32, Vec<u8>), ()> {
     RATE_LIMITER.acquire_one().await;
-    debug!("new cache entry: {}", &path);
+    if let Some(existing) = existing {
+        debug!("updated cache entry: {path} ({timestamp} != {existing})");
+    }
+    debug!("new cache entry: {path}");
     let result = store.get(&path).await.map_err(|err| {
         warn!("{err:?}");
     })?;
-    Ok((path.into(), download(result.payload).await?))
+    Ok((
+        path.into(),
+        result.meta.last_modified.timestamp() as u32,
+        download(result.payload).await?,
+    ))
 }
 
 impl Snapshot {
