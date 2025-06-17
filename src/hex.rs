@@ -24,3 +24,7 @@ pub(crate) fn hex_to_bytes(hex: &[u8], mut out: Vec<u8>) -> Option<Vec<u8>> {
     }
     Some(out)
 }
+
+pub(crate) fn bytes_to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}

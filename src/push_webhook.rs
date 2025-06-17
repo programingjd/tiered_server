@@ -5,7 +5,7 @@ use crate::env::ConfigurationKey::{
 use crate::env::secret_value;
 use crate::handler::set;
 use crate::headers::{HSelector, POST, X_HUB_SIGNATURE_256_HASH};
-use crate::hex::hex_to_bytes;
+use crate::hex::{bytes_to_hex, hex_to_bytes};
 use http_body_util::BodyExt;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
@@ -78,8 +78,9 @@ pub(crate) async fn handle_webhook(
                         .unwrap();
                 } else {
                     info!(
-                        "webhook signature mismatch:\n{hash:x?} != {:x?}",
-                        sign(&key, body.as_ref()).as_ref()
+                        "webhook signature mismatch:\n{} != {}",
+                        bytes_to_hex(&hash),
+                        bytes_to_hex(&sign(&key, body.as_ref()).as_ref())
                     );
                 }
             }
