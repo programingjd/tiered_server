@@ -37,6 +37,7 @@ static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
                 .and_then(|it| it.parse().ok())
                 .unwrap_or(100),
         )
+        .fair(true)
         .interval(Duration::from_secs(1))
         .build()
 });
