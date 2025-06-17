@@ -32,10 +32,10 @@ static SNAPSHOT: LazyLock<Pinboard<Arc<Snapshot>>> = LazyLock::new(Pinboard::new
 
 static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
     RateLimiter::builder()
-        .initial(
+        .refill(
             secret_value(ConfigurationKey::StoreRateLimit)
                 .and_then(|it| it.parse().ok())
-                .unwrap_or(1000),
+                .unwrap_or(100),
         )
         .interval(Duration::from_secs(1))
         .build()
