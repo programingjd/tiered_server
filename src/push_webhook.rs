@@ -30,6 +30,7 @@ pub(crate) async fn handle_webhook(
             .unwrap();
     }
     if let Some(webhook_token) = secret_value(StaticGithubWebhookToken) {
+        info!("headers: {:?}", request.headers());
         if let Some(hash) = request
             .headers()
             .get(X_HUB_SIGNATURE_256_HASH)
