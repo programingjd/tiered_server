@@ -87,13 +87,7 @@ impl User {
         let mut random = [0u8; 36];
         random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
         SystemRandom::new().fill(&mut random[..32]).unwrap();
-        let session_id = URL_SAFE_NO_PAD.encode_to_string(
-            timestamp
-                .to_le_bytes()
-                .into_iter()
-                .chain(random.into_iter())
-                .collect::<Vec<_>>(),
-        );
+        let session_id = URL_SAFE_NO_PAD.encode_to_string(random);
         // delete all previous sessions for the user unless they are with a different passkey
         let session_keys = snapshot
             .list::<Session>("sid/")
@@ -116,6 +110,7 @@ impl User {
             })
             .collect::<Vec<_>>();
         Snapshot::delete(session_keys.iter()).await;
+        debug!("new session for user {user_id} @{timestamp}");
         let session = Session {
             id: session_id,
             user_id,
@@ -186,7 +181,7 @@ impl SessionState {
                     SessionState::Missing
                 }
             } else {
-                debug!("Session is missing");
+                debug!("session is missing");
                 SessionState::Missing
             }
         }

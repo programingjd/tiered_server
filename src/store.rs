@@ -1,9 +1,11 @@
 use crate::env;
 use crate::env::ConfigurationKey::StoreEncryptionKey;
-use crate::env::secret_value;
+use crate::env::{ConfigurationKey, secret_value};
 use base64_simd::URL_SAFE_NO_PAD;
-use futures_lite::{StreamExt, stream};
+use futures::future::try_join_all;
+use futures::{StreamExt, stream};
 use hyper::body::Bytes;
+use leaky_bucket::RateLimiter;
 use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
@@ -23,10 +25,21 @@ use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use std::{iter, thread};
 use tar::{Archive, Builder, Header};
-use tokio::time::{MissedTickBehavior, interval, sleep};
-use tracing::{debug, trace, warn};
+use tokio::time::{MissedTickBehavior, interval};
+use tracing::{debug, info, trace, warn};
 
 static SNAPSHOT: LazyLock<Pinboard<Arc<Snapshot>>> = LazyLock::new(Pinboard::new_empty);
+
+static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
+    RateLimiter::builder()
+        .initial(
+            secret_value(ConfigurationKey::StoreRateLimit)
+                .and_then(|it| it.parse().ok())
+                .unwrap_or(100),
+        )
+        .interval(Duration::from_secs(1))
+        .build()
+});
 
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
@@ -95,6 +108,7 @@ pub fn snapshot() -> Arc<Snapshot> {
             .expect("failed to create snapshot"),
         );
         SNAPSHOT.set(snapshot.clone());
+        info!("store cache is ready");
         update_store_cache_loop();
         snapshot
     }
@@ -110,6 +124,8 @@ pub async fn new_snapshot() -> Option<Snapshot> {
     let mut entries =
         HashMap::with_capacity(256 + reference.map(|it| it.entries.len()).unwrap_or(256));
     let mut iter = store.list(None);
+    let mut pending = vec![];
+    let store = Arc::new(store);
     while let Some(metadata) = iter.next().await {
         match metadata {
             Ok(metadata) => {
@@ -118,25 +134,17 @@ pub async fn new_snapshot() -> Option<Snapshot> {
                 }
                 let timestamp = metadata.last_modified.timestamp() as u32;
                 let reference = SNAPSHOT.get_ref().map(|it| it.clone());
-                let data = if let Some(existing) = reference
+                if let Some(existing) = reference
                     .as_ref()
                     .and_then(|it| it.entries.get(metadata.location.as_ref()))
                     .filter(|it| it.timestamp == timestamp)
                 {
-                    existing.data.clone()
+                    let data = existing.data.clone();
+                    entries.insert(metadata.location.into(), Entry { timestamp, data });
                 } else {
-                    debug!("new cache entry: {}", &metadata.location);
-                    let result = store
-                        .get(&metadata.location)
-                        .await
-                        .map_err(|err| {
-                            warn!("{err:?}");
-                            err
-                        })
-                        .ok()?;
-                    download(result.payload).await?
+                    let store = store.clone();
+                    pending.push(download_entry(metadata.location, store));
                 };
-                entries.insert(metadata.location.into(), Entry { timestamp, data });
             }
             Err(err) => {
                 warn!("{err:?}");
@@ -144,7 +152,24 @@ pub async fn new_snapshot() -> Option<Snapshot> {
             }
         }
     }
+    if !pending.is_empty() {
+        for (key, data) in try_join_all(pending).await.ok()? {
+            entries.insert(key, Entry { timestamp, data });
+        }
+    }
     Some(Snapshot { entries, timestamp })
+}
+
+async fn download_entry(
+    path: Path,
+    store: Arc<Box<dyn ObjectStore>>,
+) -> Result<(String, Vec<u8>), ()> {
+    RATE_LIMITER.acquire_one().await;
+    debug!("new cache entry: {}", &path);
+    let result = store.get(&path).await.map_err(|err| {
+        warn!("{err:?}");
+    })?;
+    Ok((path.into(), download(result.payload).await?))
 }
 
 impl Snapshot {
@@ -185,7 +210,7 @@ impl Snapshot {
         match store.put(&path, payload).await {
             Ok(_) => {
                 if skip_update {
-                    sleep(Duration::from_millis(10)).await;
+                    RATE_LIMITER.acquire_one().await;
                     Some(())
                 } else {
                     let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
@@ -315,7 +340,7 @@ fn local_store() -> Option<LocalFileSystem> {
     LocalFileSystem::new_with_prefix("storage").ok()
 }
 
-async fn download(payload: GetResultPayload) -> Option<Vec<u8>> {
+async fn download(payload: GetResultPayload) -> Result<Vec<u8>, ()> {
     let mut vec = Vec::new();
     match payload {
         GetResultPayload::Stream(mut stream) => {
@@ -324,18 +349,18 @@ async fn download(payload: GetResultPayload) -> Option<Vec<u8>> {
                     Ok(chunk) => vec.extend(chunk.iter()),
                     Err(err) => {
                         warn!("{err:?}");
-                        return None;
+                        return Err(());
                     }
                 }
             }
         }
         GetResultPayload::File(mut file, ..) => {
             if file.read_to_end(&mut vec).is_err() {
-                return None;
+                return Err(());
             };
         }
     }
-    Some(vec)
+    Ok(vec)
 }
 
 #[derive(Serialize, Deserialize)]

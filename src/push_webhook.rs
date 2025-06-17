@@ -12,7 +12,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::ALLOW;
 use hyper::{Method, Request, Response, StatusCode};
 use ring::hmac::{HMAC_SHA256, Key, sign, verify};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use zip_static_handler::github::zip_download_branch_url;
 use zip_static_handler::handler::Handler;
 
@@ -23,7 +23,7 @@ pub(crate) async fn handle_webhook(
     let headers = response.headers_mut().unwrap();
     headers.insert(ALLOW, POST);
     if request.method() != Method::POST {
-        debug!("405 {}", request.uri().path());
+        info!("405 {}", request.uri().path());
         return response
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Either::Right(Empty::new()))
@@ -85,7 +85,7 @@ pub(crate) async fn handle_webhook(
             }
         }
     }
-    debug!("403 update webhook");
+    info!("403 update webhook");
     response
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))

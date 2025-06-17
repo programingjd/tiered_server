@@ -69,10 +69,10 @@ version = "0.12"
 default-features = false
 features = ["fs", "aws", "tls-webpki-roots"]
 
-[dependencies.futures-lite]
-version = "2.6"
+[dependencies.futures]
+version = "0.3"
 default-features = false
-features = ["std"]
+features = ["alloc"]
 
 [dependencies.reqwest]
 version = "0.12"
@@ -91,6 +91,11 @@ features = ["tokio", "server", "http1"]
 
 [dependencies.http-body-util]
 version = "0.1"
+default-features = false
+features = []
+
+[dependencies.leaky-bucket]
+version = "1.1"
 default-features = false
 features = []
 

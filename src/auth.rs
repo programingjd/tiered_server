@@ -27,7 +27,7 @@ use simple_asn1::{ASN1Block, BigUint, from_der};
 use std::fmt::Write;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 //noinspection SpellCheckingInspection
 static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
@@ -156,12 +156,11 @@ impl PassKey {
         {
             Some(ASN1Block::Sequence(_, blocks)) => blocks,
             _ => {
-                debug!("invalid SubjectPublicKeyInfo");
+                warn!("invalid SubjectPublicKeyInfo");
                 return false;
             }
         };
-        let info = format!("{subject_public_key_info:?}");
-        println!("{info}");
+        debug!("{}", format!("{subject_public_key_info:?}"));
         let (algorithm_oid, subject_public_key) = match pair(subject_public_key_info) {
             Some((ASN1Block::Sequence(_, blocks), ASN1Block::BitString(_, _, bytes))) => {
                 match blocks.first() {
@@ -169,7 +168,7 @@ impl PassKey {
                         let it = match it.as_vec::<&BigUint>() {
                             Ok(it) => it,
                             Err(_) => {
-                                debug!("invalid AlgorithmIdentifier");
+                                warn!("invalid AlgorithmIdentifier");
                                 return false;
                             }
                         };
@@ -185,13 +184,13 @@ impl PassKey {
                         (oid, bytes)
                     }
                     _ => {
-                        debug!("invalid AlgorithmIdentifier");
+                        warn!("invalid AlgorithmIdentifier");
                         return false;
                     }
                 }
             }
             _ => {
-                debug!("invalid SubjectPublicKeyInfo");
+                warn!("invalid SubjectPublicKeyInfo");
                 return false;
             }
         };
@@ -199,7 +198,7 @@ impl PassKey {
             "1.3.101.112" => {
                 // ED25519
                 if subject_public_key.len() != 32 {
-                    debug!("invalid ED25519 subject public key");
+                    warn!("invalid ED25519 subject public key");
                     return false;
                 }
                 let x = &subject_public_key;
@@ -228,26 +227,26 @@ impl PassKey {
                             let n = match n.to_biguint() {
                                 Some(it) => it.to_bytes_be(),
                                 None => {
-                                    debug!("invalid RSA n value");
+                                    warn!("invalid RSA n value");
                                     return false;
                                 }
                             };
                             let e = match e.to_biguint() {
                                 Some(it) => it.to_bytes_be(),
                                 None => {
-                                    debug!("invalid RSA e value");
+                                    warn!("invalid RSA e value");
                                     return false;
                                 }
                             };
                             (n, e)
                         }
                         _ => {
-                            debug!("invalid RSA subject public key");
+                            warn!("invalid RSA subject public key");
                             return false;
                         }
                     },
                     _ => {
-                        debug!("invalid RSA subject public key");
+                        warn!("invalid RSA subject public key");
                         return false;
                     }
                 };
@@ -265,7 +264,7 @@ impl PassKey {
                     .is_ok()
             }
             _ => {
-                debug!("invalid algorithm OID");
+                warn!("invalid algorithm OID");
                 false
             }
         }
@@ -276,7 +275,7 @@ impl PassKey {
             -7 => debug!("ES256"),
             -257 => debug!("RS256"),
             it => {
-                debug!("Unsupported algorithm: {it}");
+                warn!("Unsupported algorithm: {it}");
                 return None;
             }
         }
@@ -357,7 +356,7 @@ fn new_challenge(challenge_metadata: &ChallengeMetadata) -> Option<Vec<u8>> {
 
 fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) -> bool {
     if challenge.len() < 70 {
-        debug!("challenge too short");
+        warn!("challenge too short");
         return false;
     }
     let uuid = &challenge[..16];
@@ -382,32 +381,32 @@ fn verify_challenge(challenge: &[u8], challenge_metadata: &ChallengeMetadata) ->
         .iter()
         .for_each(|it| write!(uuid_str, "{:02x}", it).unwrap());
     if uuid_str != challenge_metadata.uuid {
-        debug!("challenge uuid mismatch");
+        warn!("challenge uuid mismatch");
         return false;
     }
     let len = u16::from_be_bytes([challenge[16], challenge[17]]) as usize;
     // 16 (uuid) + 2 (json len) + len (json) + 32 (random) + 4 (timestamp) + 32 (signature) = 86 + len
     if challenge.len() != len + 86 {
-        debug!("challenge length mismatch");
+        warn!("challenge length mismatch");
         return false;
     }
     if len == 0 && challenge_metadata.metadata.is_some() {
-        debug!("missing challenge metadata");
+        warn!("missing challenge metadata");
         return false;
     }
     if len > 0 && challenge_metadata.metadata.is_none() {
-        debug!("unexpected challenge metadata");
+        warn!("unexpected challenge metadata");
         return false;
     }
     if len > 0 {
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&challenge[38..]) {
             let metadata = challenge_metadata.metadata.as_ref().unwrap();
             if &value != metadata {
-                debug!("challenge metadata mismatch");
+                warn!("challenge metadata mismatch");
                 return false;
             }
         } else {
-            debug!("challenge metadata mismatch");
+            warn!("challenge metadata mismatch");
         }
     }
     let timestamp: [u8; 4] = challenge[50 + len..54 + len].try_into().unwrap();
@@ -445,7 +444,7 @@ pub(crate) async fn handle_auth(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
-            debug!("405 https://{server_name}/api/auth/credential_request_options");
+            info!("405 https://{server_name}/api/auth/credential_request_options");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -473,7 +472,7 @@ pub(crate) async fn handle_auth(
                 // allow_credentials: keys,
                 allow_credentials: vec![],
             };
-            debug!("200 https://{server_name}/api/auth/credential_request_options");
+            info!("200 https://{server_name}/api/auth/credential_request_options");
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(CONTENT_TYPE, JSON)
@@ -488,7 +487,7 @@ pub(crate) async fn handle_auth(
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 headers.insert(ALLOW, HEAD);
-                debug!("405 https://{server_name}/api/auth/credentials");
+                info!("405 https://{server_name}/api/auth/credentials");
                 return response
                     .status(StatusCode::METHOD_NOT_ALLOWED)
                     .body(Either::Right(Empty::new()))
@@ -496,21 +495,21 @@ pub(crate) async fn handle_auth(
             }
             return if let Some(first) = snapshot.list::<PassKey>(&format!("pk/{}/", user.id)).next()
             {
-                debug!("{}", first.0);
-                debug!("204 https://{server_name}/api/auth/credentials");
+                debug!("passkey: {}", first.0);
+                info!("204 https://{server_name}/api/auth/credentials");
                 Response::builder()
                     .status(StatusCode::NO_CONTENT)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
             } else {
-                debug!("404 https://{server_name}/api/auth/credentials");
+                info!("404 https://{server_name}/api/auth/credentials");
                 Response::builder()
                     .status(StatusCode::NOT_FOUND)
                     .body(Either::Right(Empty::new()))
                     .unwrap()
             };
         }
-        debug!("403 https://{server_name}/api/auth/credentials");
+        info!("403 https://{server_name}/api/auth/credentials");
     } else if path == "/credential_creation_options" {
         if session.is_none() {
             return Response::builder()
@@ -522,7 +521,7 @@ pub(crate) async fn handle_auth(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
-            debug!("405 https://{server_name}/api/auth/credential_creation_options");
+            info!("405 https://{server_name}/api/auth/credential_creation_options");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -552,7 +551,7 @@ pub(crate) async fn handle_auth(
                 rp: Rp::default(),
                 user: UserId::from(&user),
             };
-            debug!("200 https://{server_name}/api/auth/credential_creation_options");
+            info!("200 https://{server_name}/api/auth/credential_creation_options");
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(CONTENT_TYPE, JSON)
@@ -561,7 +560,7 @@ pub(crate) async fn handle_auth(
                 )))
                 .unwrap();
         }
-        debug!("403 https://{server_name}/api/auth/credential_creation_options");
+        info!("403 https://{server_name}/api/auth/credential_creation_options");
     } else if path == "/record_credential" {
         if session.is_none() {
             return Response::builder()
@@ -573,7 +572,7 @@ pub(crate) async fn handle_auth(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
-            debug!("405 https://{server_name}/api/auth/record_credential");
+            info!("405 https://{server_name}/api/auth/record_credential");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -652,7 +651,7 @@ pub(crate) async fn handle_auth(
                         if let Some(session) =
                             User::create_session(user.id, &snapshot, Some(passkey.id)).await
                         {
-                            debug!("200 https://{server_name}/api/auth/record_credential");
+                            info!("200 https://{server_name}/api/auth/record_credential");
                             let mut response = Response::builder().status(StatusCode::OK);
                             let headers = response.headers_mut().unwrap();
                             session.cookies().into_iter().for_each(|cookie| {
@@ -664,13 +663,13 @@ pub(crate) async fn handle_auth(
                 }
             }
         }
-        debug!("403 https://{server_name}/api/auth/record_credential");
+        info!("403 https://{server_name}/api/auth/record_credential");
     } else if path == "/validate_credential" {
         if request.method() != Method::POST {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
-            debug!("405 https://{server_name}/api/auth/validate_credential");
+            info!("405 https://{server_name}/api/auth/validate_credential");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -763,7 +762,7 @@ pub(crate) async fn handle_auth(
                     if let Some(session) =
                         User::create_session(user_id, &snapshot, Some(passkey_id)).await
                     {
-                        debug!("200 https://{server_name}/api/auth/validate_credential");
+                        info!("200 https://{server_name}/api/auth/validate_credential");
                         let mut response = Response::builder().status(StatusCode::OK);
                         let headers = response.headers_mut().unwrap();
                         session.cookies().into_iter().for_each(|cookie| {
@@ -774,13 +773,13 @@ pub(crate) async fn handle_auth(
                 }
             }
         }
-        debug!("403 https://{server_name}/api/auth/validate_credential");
+        info!("403 https://{server_name}/api/auth/validate_credential");
     } else if path == "/forget_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 https://{server_name}/api/auth/forget_user");
+            info!("405 https://{server_name}/api/auth/forget_user");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -790,20 +789,20 @@ pub(crate) async fn handle_auth(
             if let Some(session) = session {
                 Snapshot::delete([format!("sid/{}", session.id)].iter()).await;
             }
-            debug!("200 https://{server_name}/api/auth/forget_user");
+            info!("200 https://{server_name}/api/auth/forget_user");
             let mut response = Response::builder().status(StatusCode::OK);
             let headers = response.headers_mut().unwrap();
             headers.append(SET_COOKIE, DELETE_ST_COOKIES);
             headers.append(SET_COOKIE, DELETE_SID_COOKIES);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
-        debug!("403 https://{server_name}/api/auth/forget_user");
+        info!("403 https://{server_name}/api/auth/forget_user");
     } else if path == "/disconnect_user" {
         if request.method() != Method::GET {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 /api/auth/disconnect_user");
+            info!("405 /api/auth/disconnect_user");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -814,14 +813,14 @@ pub(crate) async fn handle_auth(
                 session.timestamp = 0;
                 Snapshot::set_and_wait_for_update(&format!("sid/{}", session.id), &session).await;
             }
-            debug!("302 https://{server_name}/api/auth/disconnect_user");
+            info!("302 https://{server_name}/api/auth/disconnect_user");
             let mut response = Response::builder().status(StatusCode::FOUND);
             let headers = response.headers_mut().unwrap();
             headers.insert(LOCATION, HeaderValue::from_static("/"));
             headers.append(SET_COOKIE, SID_EXPIRED);
             return response.body(Either::Right(Empty::new())).unwrap();
         }
-        debug!("403 https://{server_name}/api/auth/disconnect_user");
+        info!("403 https://{server_name}/api/auth/disconnect_user");
     }
     Response::builder()
         .status(StatusCode::FORBIDDEN)

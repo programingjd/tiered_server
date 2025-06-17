@@ -26,7 +26,7 @@ use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tokio::spawn;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
@@ -184,7 +184,7 @@ impl Otp {
         let mut random = [0u8; 36];
         random[32..].copy_from_slice(timestamp.to_be_bytes().as_slice());
         SystemRandom::new().fill(&mut random[..32]).unwrap();
-        let id = URL_SAFE_NO_PAD.encode_to_string(&random);
+        let id = URL_SAFE_NO_PAD.encode_to_string(random);
         let key = format!("otp/{id}");
         let otp = Self {
             id,
@@ -326,7 +326,7 @@ pub(crate) async fn handle_otp(
                     });
                 }
             }
-            debug!("202 https://{server_name}/api/otp");
+            info!("202 https://{server_name}/api/otp");
             return Response::builder()
                 .status(StatusCode::ACCEPTED)
                 .body(Either::Right(Empty::new()))
@@ -337,7 +337,7 @@ pub(crate) async fn handle_otp(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            debug!("405 https://{server_name}/api/otp{path}");
+            info!("405 https://{server_name}/api/otp{path}");
             return response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -352,9 +352,10 @@ pub(crate) async fn handle_otp(
             if let Some(signed) = token_signature(token) {
                 if signed.as_str() == signature {
                     let snapshot = snapshot();
-                    let vec = URL_SAFE_NO_PAD.decode_to_vec(token).ok();
-                    let timestamp =
-                        vec.and_then(|it| it[32..].try_into().ok().map(u32::from_le_bytes));
+                    let timestamp = URL_SAFE_NO_PAD
+                        .decode_to_vec(token)
+                        .ok()
+                        .and_then(|it| it[32..].try_into().ok().map(u32::from_be_bytes));
                     return if let Some(timestamp) = timestamp {
                         let key = format!("otp/{token}");
                         let otp = snapshot.get::<Otp>(key.as_str());
@@ -367,14 +368,19 @@ pub(crate) async fn handle_otp(
                                     .as_secs() as u32;
                                 let elapsed = now - timestamp;
                                 if otp.timestamp != timestamp || timestamp > now {
-                                    debug!("400 /api/otp{path}");
+                                    if otp.timestamp != timestamp {
+                                        debug!("otp timestamp {} != {timestamp}", otp.timestamp);
+                                    } else {
+                                        debug!("otp timestamp {timestamp} > {now} (now)");
+                                    }
+                                    info!("400 /api/otp{path}");
                                     return Response::builder()
                                         .status(StatusCode::BAD_REQUEST)
                                         .body(Either::Right(Empty::new()))
                                         .unwrap();
                                 }
                                 if elapsed > OTP_VALIDITY_DURATION {
-                                    debug!("410 /api/otp{path}");
+                                    info!("410 /api/otp{path}");
                                     return Response::builder()
                                         .status(StatusCode::GONE)
                                         .body(Either::Right(Empty::new()))
@@ -397,27 +403,27 @@ pub(crate) async fn handle_otp(
                                             USER_PATH_PREFIX.without_trailing_slash,
                                         ),
                                     );
-                                    debug!("307 /api/otp{path}");
+                                    info!("307 /api/otp{path}");
                                     return response
                                         .status(StatusCode::TEMPORARY_REDIRECT)
                                         .body(Either::Right(Empty::new()))
                                         .unwrap();
                                 };
                             }
-                            debug!("500 /api/otp{path}");
+                            info!("500 /api/otp{path}");
                             Response::builder()
                                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                                 .body(Either::Right(Empty::new()))
                                 .unwrap()
                         } else {
-                            debug!("409 /api/otp{path}");
+                            info!("409 /api/otp{path}");
                             Response::builder()
                                 .status(StatusCode::CONFLICT)
                                 .body(Either::Right(Empty::new()))
                                 .unwrap()
                         }
                     } else {
-                        debug!("400 /api/otp{path}");
+                        info!("400 /api/otp{path}");
                         Response::builder()
                             .status(StatusCode::BAD_REQUEST)
                             .body(Either::Right(Empty::new()))
@@ -427,7 +433,7 @@ pub(crate) async fn handle_otp(
             }
         }
     }
-    debug!("404 https://{server_name}/api/otp{path}");
+    info!("404 https://{server_name}/api/otp{path}");
     Response::builder()
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))

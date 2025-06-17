@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
-use tracing::{debug, info};
+use tracing::{info, trace};
 use zip_static_handler::handler::Handler;
 
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
@@ -97,7 +97,7 @@ pub(crate) async fn ensure_admin_users_exist(
         .list::<User>("acc/")
         .map(|(_, user)| user)
         .collect::<Vec<_>>();
-    debug!(
+    trace!(
         "users:\n{}",
         users
             .iter()
@@ -261,7 +261,7 @@ pub(crate) async fn handle_user(
         {
             if path == "/reg/code" {
                 if let Some(secret) = *VALIDATION_TOTP_SECRET {
-                    debug!("200 https://{server_name}/api/user/admin/reg/code");
+                    info!("200 https://{server_name}/api/user/admin/reg/code");
                     return RequestOrResponse::Res(
                         Response::builder()
                             .status(StatusCode::OK)
@@ -317,7 +317,7 @@ pub(crate) async fn handle_user(
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET_POST_PUT);
-                    debug!("405 https://{server_name}/api/user");
+                    info!("405 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         response
                             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -378,7 +378,7 @@ pub(crate) async fn handle_user(
                                     .await
                                     .is_some())
                             {
-                                debug!("202 https://{server_name}/api/user/admin/reg");
+                                info!("202 https://{server_name}/api/user/admin/reg");
                                 return RequestOrResponse::Res(
                                     Response::builder()
                                         .status(StatusCode::ACCEPTED)
@@ -389,7 +389,7 @@ pub(crate) async fn handle_user(
                         }
                     }
                 }
-                debug!("400 https://{server_name}/api/user/admin/reg");
+                info!("400 https://{server_name}/api/user/admin/reg");
                 return RequestOrResponse::Res(
                     Response::builder()
                         .status(StatusCode::BAD_REQUEST)
@@ -398,7 +398,7 @@ pub(crate) async fn handle_user(
                 );
             }
         } else {
-            debug!("403 https://{server_name}/api/user/admin{path}");
+            info!("403 https://{server_name}/api/user/admin{path}");
             return RequestOrResponse::Res(
                 Response::builder()
                     .status(StatusCode::FORBIDDEN)
@@ -482,7 +482,7 @@ pub(crate) async fn handle_user(
                             {
                                 false
                             } else {
-                                debug!("403 /api/user");
+                                info!("403 /api/user");
                                 return RequestOrResponse::Res(
                                     Response::builder()
                                         .status(StatusCode::FORBIDDEN)
@@ -540,7 +540,7 @@ pub(crate) async fn handle_user(
                         )
                         .await;
                     }
-                    debug!("202 https://{server_name}/api/user");
+                    info!("202 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         Response::builder()
                             .status(StatusCode::ACCEPTED)
@@ -549,7 +549,7 @@ pub(crate) async fn handle_user(
                     );
                 }
             }
-            debug!("400 https://{server_name}/api/user");
+            info!("400 https://{server_name}/api/user");
             return RequestOrResponse::Res(
                 Response::builder()
                     .status(StatusCode::BAD_REQUEST)
@@ -584,7 +584,7 @@ pub(crate) async fn handle_user(
                         #[serde(flatten, skip_serializing_if = "Option::is_none")]
                         metadata: Option<Value>,
                     }
-                    debug!("200 https://{server_name}/api/user");
+                    info!("200 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         Response::builder()
                             .status(StatusCode::OK)
@@ -610,7 +610,7 @@ pub(crate) async fn handle_user(
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET_POST_PUT);
-                    debug!("405 https://{server_name}/api/user");
+                    info!("405 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         response
                             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -620,7 +620,7 @@ pub(crate) async fn handle_user(
                 }
             }
         }
-        debug!("403 https://{server_name}/api/user");
+        info!("403 https://{server_name}/api/user");
         return RequestOrResponse::Res(
             Response::builder()
                 .status(StatusCode::FORBIDDEN)
