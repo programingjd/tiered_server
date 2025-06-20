@@ -10,7 +10,7 @@ pub const JSON: HeaderValue = HeaderValue::from_static("application/json");
 pub const GET: HeaderValue = HeaderValue::from_static("GET");
 pub const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
 pub const POST: HeaderValue = HeaderValue::from_static("POST");
-pub const GET_POST_PUT: HeaderValue = HeaderValue::from_static("GET, POST, PUT");
+pub const GET_POST: HeaderValue = HeaderValue::from_static("GET, POST");
 
 pub(crate) const X_HUB_SIGNATURE_256_HASH: HeaderName =
     HeaderName::from_static("x-hub-signature-256");

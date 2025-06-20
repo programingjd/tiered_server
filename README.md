@@ -304,8 +304,11 @@ The endpoints are under the api prefix.
 - `POST` `{api}/otp`<br>
   Requests a new email with a one-time login link.
 
-- `PUT` `{api}/user`<br>
+- `POST` `{api}/user`<br>
   Submits a new account request.
+
+- `PUT` `{api}/user/email`<br>
+  Submits an account email update request.
 
 - `GET` `{api}/user/admin/reg`<br>
   Lists all the pending user registrations.

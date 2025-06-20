@@ -1,12 +1,12 @@
 use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
 use crate::handler::static_handler;
-use crate::headers::{GET_POST_PUT, JSON};
+use crate::headers::{GET_POST, JSON, POST};
 use crate::norm::{
     DEFAULT_COUNTRY_CODE, normalize_email, normalize_first_name, normalize_last_name,
     normalize_phone_number,
 };
-use crate::otp::Otp;
+use crate::otp::{Action, Otp};
 use crate::server::DOMAIN_APEX;
 use crate::session::{SESSION_MAX_AGE, SessionState};
 use crate::store::{Snapshot, snapshot};
@@ -210,7 +210,15 @@ impl User {
         };
         Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            Otp::send_initial(&user, snapshot, handler, server_name).await?;
+            Otp::send(
+                &user,
+                Action::FirstLogin,
+                None,
+                snapshot,
+                handler,
+                server_name,
+            )
+            .await?;
         }
         Some(user)
     }
@@ -316,7 +324,7 @@ pub(crate) async fn handle_user(
                 } else if request.method() != Method::POST {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
-                    headers.insert(ALLOW, GET_POST_PUT);
+                    headers.insert(ALLOW, GET_POST);
                     info!("405 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         response
@@ -369,8 +377,10 @@ pub(crate) async fn handle_user(
                                     .await
                                     .is_some()
                                 && (skip_notification
-                                    || Otp::send_initial(
+                                    || Otp::send(
                                         &user,
+                                        Action::FirstLogin,
+                                        None,
                                         &snapshot,
                                         &static_handler(),
                                         server_name,
@@ -406,8 +416,82 @@ pub(crate) async fn handle_user(
                     .unwrap(),
             );
         }
+    } else if path == "/email" {
+        let snapshot = snapshot();
+        if let SessionState::Valid { user, .. } =
+            SessionState::from_headers(request.headers(), &snapshot).await
+        {
+            if request.method() == Method::POST {
+                if let Some(value) = request.into_body().collect().await.ok().and_then(|it| {
+                    let bytes = it.to_bytes();
+                    if bytes.is_ascii() {
+                        let email = String::from_utf8_lossy(&bytes);
+                        let len = email.len();
+                        if len > 5 && email[1..len - 4].contains('@') {
+                            return serde_json::to_value(email).ok();
+                        }
+                    }
+                    None
+                }) {
+                    if Otp::send(
+                        &user,
+                        Action::EmailUpdate,
+                        Some(value),
+                        &snapshot,
+                        &static_handler(),
+                        server_name,
+                    )
+                    .await
+                    .is_some()
+                    {
+                        info!("202 https://{server_name}/api/user/email");
+                        return RequestOrResponse::Res(
+                            Response::builder()
+                                .status(StatusCode::ACCEPTED)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
+                    } else {
+                        info!("500 https://{server_name}/api/user/email");
+                        return RequestOrResponse::Res(
+                            Response::builder()
+                                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
+                    }
+                } else {
+                    info!("400 https://{server_name}/api/user/email");
+                    return RequestOrResponse::Res(
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap(),
+                    );
+                }
+            } else {
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(ALLOW, POST);
+                info!("405 https://{server_name}/api/user/email");
+                return RequestOrResponse::Res(
+                    response
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap(),
+                );
+            }
+        } else {
+            info!("403 https://{server_name}/api/user/email");
+            return RequestOrResponse::Res(
+                Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap(),
+            );
+        }
     } else if path == "/" || path.is_empty() {
-        if request.method() == Method::PUT {
+        if request.method() == Method::POST {
             if let Some(boundary) = request
                 .headers()
                 .get(CONTENT_TYPE)
@@ -609,7 +693,7 @@ pub(crate) async fn handle_user(
                 } else {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
-                    headers.insert(ALLOW, GET_POST_PUT);
+                    headers.insert(ALLOW, GET_POST);
                     info!("405 https://{server_name}/api/user");
                     return RequestOrResponse::Res(
                         response

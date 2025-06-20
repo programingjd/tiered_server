@@ -9,7 +9,7 @@ pub mod headers;
 mod hex;
 mod iter;
 pub mod norm;
-mod otp;
+pub mod otp;
 pub mod prefix;
 mod push_webhook;
 pub mod server;

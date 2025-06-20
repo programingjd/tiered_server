@@ -1,7 +1,8 @@
+use crate::api::Extension;
 use crate::email::Email;
 use crate::env::ConfigurationKey::{
     EmailAccountCreatedTemplate, EmailAccountCreatedTitle, EmailOneTimeLoginTemplate,
-    EmailOneTimeLoginTitle, OtpSigningKey,
+    EmailOneTimeLoginTitle, EmailVerifyEmailTemplate, EmailVerifyEmailTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
 use crate::handler::static_handler;
@@ -21,7 +22,7 @@ use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use ring::hmac::{HMAC_SHA256, Key, sign};
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::Value;
 use std::str::from_utf8;
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
@@ -48,18 +49,118 @@ static EMAIL_ACCOUNT_CREATED_TITLE: LazyLock<Option<&'static str>> =
 static EMAIL_ACCOUNT_CREATED_TEMPLATE: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(EmailAccountCreatedTemplate));
 
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_VERIFY_EMAIL_TITLE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailVerifyEmailTitle));
+//noinspection SpellCheckingInspection
+static EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE: LazyLock<Option<&'static str>> =
+    LazyLock::new(|| secret_value(EmailVerifyEmailTemplate));
+
 const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Otp {
+pub(crate) struct Otp {
     id: String,
     user_id: String,
     timestamp: u32,
+    action: Action,
+    data: Option<Value>,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub enum Action {
+    #[serde(rename = "first_login")]
+    FirstLogin,
+    #[serde(rename = "login")]
+    Login,
+    #[serde(rename = "email_update")]
+    EmailUpdate,
+}
+
+impl Action {
+    pub(crate) fn otp_validity_duration(&self) -> Option<u32> {
+        match self {
+            Action::FirstLogin => None,
+            Action::Login => {
+                Some(1_200) // 20 mins
+            }
+            Action::EmailUpdate => {
+                Some(1_200) // 20 mins
+            }
+        }
+    }
+    pub(crate) fn email_template(&self) -> (Option<&'static str>, Option<&'static str>) {
+        match self {
+            Action::FirstLogin => (
+                *EMAIL_ACCOUNT_CREATED_TITLE,
+                *EMAIL_ACCOUNT_CREATED_TEMPLATE,
+            ),
+            Action::Login => (*EMAIL_ONE_TIME_LOGIN_TITLE, *EMAIL_ONE_TIME_LOGIN_TEMPLATE),
+            Action::EmailUpdate => (
+                *EMAIL_ACCOUNT_VERIFY_EMAIL_TITLE,
+                *EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE,
+            ),
+        }
+    }
+    async fn execute(
+        self,
+        mut user: User,
+        value: Option<Value>,
+        snapshot: &Arc<Snapshot>,
+    ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
+        match self {
+            Action::FirstLogin | Action::Login => {
+                let session = User::create_session(&user.id, snapshot, None).await?;
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                session.cookies().into_iter().for_each(|cookie| {
+                    headers.append(SET_COOKIE, cookie);
+                });
+                headers.insert(
+                    LOCATION,
+                    HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
+                );
+                Some(
+                    response
+                        .status(StatusCode::TEMPORARY_REDIRECT)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap(),
+                )
+            }
+            Action::EmailUpdate => {
+                let email = value.and_then(|it| serde_json::from_value::<String>(it).ok())?;
+                user.identification = IdentificationMethod::Email(email.into());
+                Snapshot::set_and_wait_for_update(&format!("acc/{}", user.id), &user).await?;
+                let mut response = Response::builder();
+                let headers = response.headers_mut().unwrap();
+                headers.insert(
+                    LOCATION,
+                    HeaderValue::from_static(USER_PATH_PREFIX.without_trailing_slash),
+                );
+                Some(
+                    response
+                        .status(StatusCode::TEMPORARY_REDIRECT)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap(),
+                )
+            }
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct TemplateData<'a> {
+    user: &'a User,
+    link_url: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none", flatten)]
+    value: Option<&'a Value>,
 }
 
 impl Otp {
     pub(crate) async fn send(
         user: &User,
+        action: Action,
+        value: Option<Value>,
         snapshot: &Arc<Snapshot>,
         handler: &Arc<Handler>,
         server_name: &Arc<String>,
@@ -68,20 +169,7 @@ impl Otp {
             IdentificationMethod::Email(email) => email.address.as_str(),
             _ => return None,
         };
-        let otp = Self::create(user, snapshot, true).await?;
-        Self::send_otp(user, email, otp, handler, server_name).await
-    }
-    pub(crate) async fn send_initial(
-        user: &User,
-        snapshot: &Arc<Snapshot>,
-        handler: &Arc<Handler>,
-        server_name: &Arc<String>,
-    ) -> Option<()> {
-        let email = match &user.identification {
-            IdentificationMethod::Email(email) => email.address.as_str(),
-            _ => return None,
-        };
-        let otp = Self::create(user, snapshot, false).await?;
+        let otp = Self::create(user, action, value, snapshot).await?;
         Self::send_otp(user, email, otp, handler, server_name).await
     }
 
@@ -98,18 +186,9 @@ impl Otp {
             "https://{server_name}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
-        let expiring = otp.timestamp != 0;
-        let (subject, template_name) = if expiring {
-            (
-                (*EMAIL_ONE_TIME_LOGIN_TITLE)?,
-                (*EMAIL_ONE_TIME_LOGIN_TEMPLATE)?,
-            )
-        } else {
-            (
-                (*EMAIL_ACCOUNT_CREATED_TITLE)?,
-                (*EMAIL_ACCOUNT_CREATED_TEMPLATE)?,
-            )
-        };
+        let (subject, template_name) = otp.action.email_template();
+        let subject = subject?;
+        let template_name = template_name?;
         let content = match handler
             .entry(&format!(
                 "{}{template_name}",
@@ -140,10 +219,11 @@ impl Otp {
                     }
                 }
                 .and_then(|template| {
-                    template.render(json!({
-                        "user": user,
-                        "link_url": link_url.as_str(),
-                    }))
+                    template.render(TemplateData {
+                        user,
+                        link_url: link_url.as_str(),
+                        value: otp.data.as_ref(),
+                    })
                 })
             }
             Err(_) => {
@@ -176,7 +256,12 @@ impl Otp {
         }
     }
 
-    async fn create(user: &User, snapshot: &Arc<Snapshot>, expiring: bool) -> Option<Self> {
+    async fn create(
+        user: &User,
+        action: Action,
+        data: Option<Value>,
+        snapshot: &Arc<Snapshot>,
+    ) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -189,7 +274,9 @@ impl Otp {
         let otp = Self {
             id,
             user_id: user.id.clone(),
-            timestamp: if expiring { timestamp } else { 0 },
+            timestamp: action.otp_validity_duration().unwrap_or(0),
+            action,
+            data,
         };
         let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
         Snapshot::set_and_wait_for_update(key.as_str(), &otp).await?;
@@ -240,9 +327,10 @@ pub(crate) fn token_signature(token: &str) -> Option<String> {
     Some(URL_SAFE_NO_PAD.encode_to_string(sign(&key, &payload).as_ref()))
 }
 
-pub(crate) async fn handle_otp(
+pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
+    extension: &Ext,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = &request.uri().path()[8..];
     if request.method() == Method::POST {
@@ -322,7 +410,15 @@ pub(crate) async fn handle_otp(
                     let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(&user, &snapshot, &static_handler(), &server_name).await
+                        Otp::send(
+                            &user,
+                            Action::Login,
+                            None,
+                            &snapshot,
+                            &static_handler(),
+                            &server_name,
+                        )
+                        .await
                     });
                 }
             }
@@ -386,29 +482,26 @@ pub(crate) async fn handle_otp(
                                         .body(Either::Right(Empty::new()))
                                         .unwrap();
                                 }
+                            } else if otp.action.otp_validity_duration().is_some() {
+                                return Response::builder()
+                                    .status(StatusCode::BAD_REQUEST)
+                                    .body(Either::Right(Empty::new()))
+                                    .unwrap();
                             }
                             let key = format!("acc/{}", otp.user_id);
                             if let Some(user) = snapshot.get::<User>(key.as_str()) {
-                                if let Some(session) =
-                                    User::create_session(&user.id, &snapshot, None).await
+                                if extension
+                                    .perform_action(&user, otp.action, otp.data.as_ref())
+                                    .await
+                                    .is_some()
                                 {
-                                    let mut response = Response::builder();
-                                    let headers = response.headers_mut().unwrap();
-                                    session.cookies().into_iter().for_each(|cookie| {
-                                        headers.append(SET_COOKIE, cookie);
-                                    });
-                                    headers.insert(
-                                        LOCATION,
-                                        HeaderValue::from_static(
-                                            USER_PATH_PREFIX.without_trailing_slash,
-                                        ),
-                                    );
-                                    info!("307 /api/otp{path}");
-                                    return response
-                                        .status(StatusCode::TEMPORARY_REDIRECT)
-                                        .body(Either::Right(Empty::new()))
-                                        .unwrap();
-                                };
+                                    if let Some(response) =
+                                        otp.action.execute(user, otp.data, &snapshot).await
+                                    {
+                                        info!("{} /api/otp{path}", response.status().as_u16());
+                                        return response;
+                                    }
+                                }
                             }
                             info!("500 /api/otp{path}");
                             Response::builder()

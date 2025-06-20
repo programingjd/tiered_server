@@ -74,6 +74,8 @@ pub enum ConfigurationKey {
     EmailOneTimeLoginTemplate,
     EmailAccountCreatedTitle,
     EmailAccountCreatedTemplate,
+    EmailVerifyEmailTitle,
+    EmailVerifyEmailTemplate,
     AdminUsers,
     Other { variable_name: &'static str },
 }
@@ -112,6 +114,8 @@ impl ConfigurationKey {
             Self::EmailOneTimeLoginTemplate => "EMAIL_ONE_TIME_LOGIN_TEMPLATE",
             Self::EmailAccountCreatedTitle => "EMAIL_ACCOUNT_CREATED_TITLE",
             Self::EmailAccountCreatedTemplate => "EMAIL_ACCOUNT_CREATED_TEMPLATE",
+            Self::EmailVerifyEmailTitle => "EMAIL_VERIFY_EMAIL_TITLE",
+            Self::EmailVerifyEmailTemplate => "EMAIL_VERIFY_EMAIL_TEMPLATE",
             Self::AdminUsers => "ADMIN_USERS",
             Self::Other { variable_name } => variable_name,
         }
