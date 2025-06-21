@@ -19,9 +19,14 @@ You need to specify the token with the variable:
 
 - `STATIC_GITHUB_WEBHOOK_TOKEN`
 
+If the request comes from a github server, then the server assumes that it is a webhook,
+and the endpoint doesn't matter. If the webhook endpoint is proxied via cloudflare, then
+the endpoint should be `/github_push_webhook`.
+
 If you set that up, then updating the static content is simply done by pushing the updates to
 the appropriate branch.<br>
-Otherwise, you need to restart the server to have it pull up the new content.
+Otherwise, you can also call `https://localhost/github_push_webhook` from the server
+and of course you can simply restart the server to have it pull up the new content.
 
 <br>
 
