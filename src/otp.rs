@@ -470,11 +470,12 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                     .unwrap()
                                     .as_secs() as u32;
                                 let elapsed = now - timestamp;
-                                if otp.timestamp != timestamp || timestamp > now {
-                                    if otp.timestamp != timestamp {
-                                        debug!("otp timestamp {} != {timestamp}", otp.timestamp);
+                                let duration = otp.action.otp_validity_duration().unwrap_or(0);
+                                if otp.timestamp != timestamp + duration || timestamp > now + duration {
+                                    if otp.timestamp != timestamp + duration {
+                                        debug!("otp timestamp {} != {timestamp} + {duration}", otp.timestamp);
                                     } else {
-                                        debug!("otp timestamp {timestamp} > {now} (now)");
+                                        debug!("otp timestamp {timestamp} > {now} (now) + {duration}");
                                     }
                                     info!("400 /api/otp{path}");
                                     return Response::builder()
