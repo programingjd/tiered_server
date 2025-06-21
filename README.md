@@ -315,8 +315,11 @@ The endpoints are under the api prefix.
 - `PUT` `{api}/user/email`<br>
   Submits an account email update request.
 
-- `GET` `{api}/user/admin/reg`<br>
+- `GET` `{api}/user/admin/users`<br>
+  Lists all registered users.
+
+- `GET` `{api}/user/admin/registrations`<br>
   Lists all the pending user registrations.
 
-- `POST` `{api}/user/admin/reg`<br>
+- `POST` `{api}/user/admin/registrations`<br>
   Accepts a user registration.

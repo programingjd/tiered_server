@@ -1,7 +1,7 @@
 use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
 use crate::handler::static_handler;
-use crate::headers::{GET_POST, JSON, POST};
+use crate::headers::{GET, GET_POST, JSON, POST};
 use crate::norm::{
     DEFAULT_COUNTRY_CODE, normalize_email, normalize_first_name, normalize_last_name,
     normalize_phone_number,
@@ -267,7 +267,7 @@ pub(crate) async fn handle_user(
             .await
             .is_admin()
         {
-            if path == "/reg/code" {
+            if path == "/registrations/code" {
                 if let Some(secret) = *VALIDATION_TOTP_SECRET {
                     info!("200 https://{server_name}/api/user/admin/reg/code");
                     return RequestOrResponse::Res(
@@ -278,7 +278,7 @@ pub(crate) async fn handle_user(
                             .unwrap(),
                     );
                 }
-            } else if path == "/reg" {
+            } else if path == "/users" || path == "/registrations" {
                 if request.method() == Method::GET {
                     #[derive(Serialize)]
                     struct UserResponse {
@@ -291,7 +291,7 @@ pub(crate) async fn handle_user(
                         metadata: Option<Value>,
                     }
                     let users = snapshot
-                        .list::<User>("reg/")
+                        .list::<User>(if path == "/users" { "acc/" } else { "reg/" })
                         .map(|(_, user)| {
                             let (email, sms) = match user.identification {
                                 IdentificationMethod::Email(email) => {
@@ -321,91 +321,104 @@ pub(crate) async fn handle_user(
                             )))
                             .unwrap(),
                     );
-                } else if request.method() != Method::POST {
+                } else if path == "/users" {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
-                    headers.insert(ALLOW, GET_POST);
-                    info!("405 https://{server_name}/api/user");
+                    headers.insert(ALLOW, GET);
+                    info!("405 https://{server_name}/api/user/admin/users");
                     return RequestOrResponse::Res(
                         response
                             .status(StatusCode::METHOD_NOT_ALLOWED)
                             .body(Either::Right(Empty::new()))
                             .unwrap(),
                     );
-                }
-                if let Some(boundary) = request
-                    .headers()
-                    .get(CONTENT_TYPE)
-                    .and_then(|it| it.to_str().ok())
-                    .and_then(|it| parse_boundary(it).ok())
-                {
-                    let mut multipart = Multipart::with_constraints(
-                        request.into_body().into_data_stream(),
-                        boundary,
-                        Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
-                    );
-                    let mut user_id = None;
-                    let mut skip_notification = false;
-                    while let Ok(Some(field)) = multipart.next_field().await {
-                        match field.name() {
-                            Some("user_id") => {
-                                if let Ok(it) = field.text().await {
-                                    user_id = Some(it);
-                                }
-                            }
-                            Some("skip_notification") => {
-                                if let Ok(it) = field.text().await {
-                                    if let Ok(b) = it.parse::<bool>() {
-                                        skip_notification = b;
+                } else {
+                    if request.method() != Method::POST {
+                        let mut response = Response::builder();
+                        let headers = response.headers_mut().unwrap();
+                        headers.insert(ALLOW, GET_POST);
+                        info!("405 https://{server_name}/api/user/admin/reg");
+                        return RequestOrResponse::Res(
+                            response
+                                .status(StatusCode::METHOD_NOT_ALLOWED)
+                                .body(Either::Right(Empty::new()))
+                                .unwrap(),
+                        );
+                    }
+                    if let Some(boundary) = request
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|it| it.to_str().ok())
+                        .and_then(|it| parse_boundary(it).ok())
+                    {
+                        let mut multipart = Multipart::with_constraints(
+                            request.into_body().into_data_stream(),
+                            boundary,
+                            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+                        );
+                        let mut user_id = None;
+                        let mut skip_notification = false;
+                        while let Ok(Some(field)) = multipart.next_field().await {
+                            match field.name() {
+                                Some("user_id") => {
+                                    if let Ok(it) = field.text().await {
+                                        user_id = Some(it);
                                     }
                                 }
-                            }
-                            _ => {}
-                        }
-                    }
-                    if let Some(user_id) = user_id {
-                        let user = snapshot.get::<User>(user_id.as_str());
-                        if let Some(mut user) = user {
-                            user.metadata = None;
-                            if Snapshot::set_and_wait_for_update(
-                                format!("acc/{user_id}").as_str(),
-                                &user,
-                            )
-                            .await
-                            .is_some()
-                                && Snapshot::delete([format!("reg/{user_id}").as_str()].iter())
-                                    .await
-                                    .is_some()
-                                && (skip_notification
-                                    || Otp::send(
-                                        &user,
-                                        Action::FirstLogin,
-                                        None,
-                                        &snapshot,
-                                        &static_handler(),
-                                        server_name,
-                                    )
-                                    .await
-                                    .is_some())
-                            {
-                                info!("202 https://{server_name}/api/user/admin/reg");
-                                return RequestOrResponse::Res(
-                                    Response::builder()
-                                        .status(StatusCode::ACCEPTED)
-                                        .body(Either::Right(Empty::new()))
-                                        .unwrap(),
-                                );
+                                Some("skip_notification") => {
+                                    if let Ok(it) = field.text().await {
+                                        if let Ok(b) = it.parse::<bool>() {
+                                            skip_notification = b;
+                                        }
+                                    }
+                                }
+                                _ => {}
                             }
                         }
+                        if let Some(user_id) = user_id {
+                            let user = snapshot.get::<User>(user_id.as_str());
+                            if let Some(mut user) = user {
+                                user.metadata = None;
+                                if Snapshot::set_and_wait_for_update(
+                                    format!("acc/{user_id}").as_str(),
+                                    &user,
+                                )
+                                .await
+                                .is_some()
+                                    && Snapshot::delete([format!("reg/{user_id}").as_str()].iter())
+                                        .await
+                                        .is_some()
+                                    && (skip_notification
+                                        || Otp::send(
+                                            &user,
+                                            Action::FirstLogin,
+                                            None,
+                                            &snapshot,
+                                            &static_handler(),
+                                            server_name,
+                                        )
+                                        .await
+                                        .is_some())
+                                {
+                                    info!("202 https://{server_name}/api/user/admin/reg");
+                                    return RequestOrResponse::Res(
+                                        Response::builder()
+                                            .status(StatusCode::ACCEPTED)
+                                            .body(Either::Right(Empty::new()))
+                                            .unwrap(),
+                                    );
+                                }
+                            }
+                        }
                     }
+                    info!("400 https://{server_name}/api/user/admin/reg");
+                    return RequestOrResponse::Res(
+                        Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap(),
+                    );
                 }
-                info!("400 https://{server_name}/api/user/admin/reg");
-                return RequestOrResponse::Res(
-                    Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap(),
-                );
             }
         } else {
             info!("403 https://{server_name}/api/user/admin{path}");
