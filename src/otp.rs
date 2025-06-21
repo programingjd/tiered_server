@@ -271,23 +271,30 @@ impl Otp {
         SystemRandom::new().fill(&mut random[..32]).unwrap();
         let id = URL_SAFE_NO_PAD.encode_to_string(random);
         let key = format!("otp/{id}");
-        let otp = Self {
-            id,
-            user_id: user.id.clone(),
-            timestamp: action.otp_validity_duration().unwrap_or(0),
-            action,
-            data,
-        };
-        let _ = Self::remove_expired(snapshot, Some(user.id.as_str())).await;
-        Snapshot::set_and_wait_for_update(key.as_str(), &otp).await?;
-        Some(otp)
-    }
-
-    async fn remove_expired(snapshot: &Arc<Snapshot>, user_id: Option<&str>) -> Option<()> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs() as u32;
+        let otp = Self {
+            id,
+            user_id: user.id.clone(),
+            timestamp: action
+                .otp_validity_duration()
+                .map(|it| timestamp + it)
+                .unwrap_or(0),
+            action,
+            data,
+        };
+        let _ = Self::remove_expired(timestamp, snapshot, Some(user.id.as_str())).await;
+        Snapshot::set_and_wait_for_update(key.as_str(), &otp).await?;
+        Some(otp)
+    }
+
+    async fn remove_expired(
+        timestamp: u32,
+        snapshot: &Arc<Snapshot>,
+        user_id: Option<&str>,
+    ) -> Option<()> {
         let paths: Vec<String> = snapshot
             .list::<Otp>("opt/")
             .filter_map(|(k, otp)| {
