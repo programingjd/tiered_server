@@ -6,7 +6,7 @@ use crate::env::secret_value;
 use crate::firewalls::update_firewall_loop;
 use crate::handler::static_handler;
 use crate::prefix::{API_PATH_PREFIX, USER_PATH_PREFIX};
-use crate::push_webhook::handle_webhook;
+use crate::push_webhook::{handle_local_update_request, handle_webhook};
 use crate::session::{LOGIN_PATH, SID_EXPIRED, SessionState};
 use crate::store::snapshot;
 use crate::user::ensure_admin_users_exist;
@@ -165,7 +165,11 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                         // that the static content should be updated
                                         if is_webhook || path == "/github_push_webhook" {
                                             Ok::<_, Infallible>(
-                                                handle_webhook(request).await,
+                                                if remote_address.ip().is_loopback() {
+                                                    handle_local_update_request().await
+                                                } else {
+                                                    handle_webhook(request).await
+                                                }
                                             )
                                         }
                                         // api requests

@@ -49,39 +49,14 @@ pub(crate) async fn handle_webhook(
             let key = Key::new(HMAC_SHA256, webhook_token.as_bytes());
             if let Ok(body) = request.collect().await.map(|it| it.to_bytes()) {
                 if verify(&key, body.as_ref(), hash_bytes.as_slice()).is_ok() {
-                    let github_user = secret_value(StaticGithubUser).unwrap();
-                    let github_repository = secret_value(StaticGithubRepository).unwrap();
-                    let github_branch = secret_value(StaticGithubBranch).unwrap();
-                    match download(&zip_download_branch_url(
-                        github_user,
-                        github_repository,
-                        github_branch,
-                    ))
-                    .await
-                    {
-                        Ok(zip) => {
-                            match Handler::builder()
-                                .with_custom_header_selector(&HSelector)
-                                .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
-                                .with_zip(zip)
-                                .try_build()
-                            {
-                                Ok(static_handler) => {
-                                    set(static_handler);
-                                    return response
-                                        .status(StatusCode::OK)
-                                        .body(Either::Right(Empty::new()))
-                                        .unwrap();
-                                }
-                                Err(err) => {
-                                    warn!("failed to update static content: {err}");
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            warn!("failed to download static content: {err}");
-                        }
+                    if update().await.is_some() {
+                        info!("204 update webhook");
+                        return response
+                            .status(StatusCode::NO_CONTENT)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap();
                     }
+                    info!("503 update webhook");
                     return response
                         .status(StatusCode::SERVICE_UNAVAILABLE)
                         .body(Either::Right(Empty::new()))
@@ -101,4 +76,55 @@ pub(crate) async fn handle_webhook(
         .status(StatusCode::FORBIDDEN)
         .body(Either::Right(Empty::new()))
         .unwrap()
+}
+
+pub(crate) async fn handle_local_update_request() -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+    let response = Response::builder();
+    if update().await.is_some() {
+        info!("204 update webhook");
+        response
+            .status(StatusCode::NO_CONTENT)
+            .body(Either::Right(Empty::new()))
+            .unwrap()
+    } else {
+        info!("503 update webhook");
+        response
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .body(Either::Right(Empty::new()))
+            .unwrap()
+    }
+}
+
+async fn update() -> Option<()> {
+    let github_user = secret_value(StaticGithubUser).unwrap();
+    let github_repository = secret_value(StaticGithubRepository).unwrap();
+    let github_branch = secret_value(StaticGithubBranch).unwrap();
+    match download(&zip_download_branch_url(
+        github_user,
+        github_repository,
+        github_branch,
+    ))
+    .await
+    {
+        Ok(zip) => {
+            match Handler::builder()
+                .with_custom_header_selector(&HSelector)
+                .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
+                .with_zip(zip)
+                .try_build()
+            {
+                Ok(static_handler) => {
+                    set(static_handler);
+                    return Some(());
+                }
+                Err(err) => {
+                    warn!("failed to update static content: {err}");
+                }
+            }
+        }
+        Err(err) => {
+            warn!("failed to download static content: {err}");
+        }
+    }
+    None
 }
