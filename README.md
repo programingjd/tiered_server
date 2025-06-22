@@ -312,7 +312,7 @@ The endpoints are under the api prefix.
 - `POST` `{api}/user`<br>
   Submits a new account request.
 
-- `PUT` `{api}/user/email`<br>
+- `POST` `{api}/user/email`<br>
   Submits an account email update request.
 
 - `GET` `{api}/user/admin/users`<br>
