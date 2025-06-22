@@ -337,7 +337,7 @@ pub(crate) async fn handle_user(
                         let mut response = Response::builder();
                         let headers = response.headers_mut().unwrap();
                         headers.insert(ALLOW, GET_POST);
-                        info!("405 https://{server_name}/api/user/admin/reg");
+                        info!("405 https://{server_name}/api/user/admin/registrations");
                         return RequestOrResponse::Res(
                             response
                                 .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -400,7 +400,7 @@ pub(crate) async fn handle_user(
                                         .await
                                         .is_some())
                                 {
-                                    info!("202 https://{server_name}/api/user/admin/reg");
+                                    info!("202 https://{server_name}/api/user/admin/registrations");
                                     return RequestOrResponse::Res(
                                         Response::builder()
                                             .status(StatusCode::ACCEPTED)
@@ -411,7 +411,7 @@ pub(crate) async fn handle_user(
                             }
                         }
                     }
-                    info!("400 https://{server_name}/api/user/admin/reg");
+                    info!("400 https://{server_name}/api/user/admin/registrations");
                     return RequestOrResponse::Res(
                         Response::builder()
                             .status(StatusCode::BAD_REQUEST)
@@ -441,7 +441,9 @@ pub(crate) async fn handle_user(
                         let email = String::from_utf8_lossy(&bytes);
                         let len = email.len();
                         if len > 5 && email[1..len - 4].contains('@') {
-                            return serde_json::to_value(email).ok();
+                            Some(json!({
+                                "new_email": email.as_ref()
+                            }));
                         }
                     }
                     None
