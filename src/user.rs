@@ -441,7 +441,7 @@ pub(crate) async fn handle_user(
                         let email = String::from_utf8_lossy(&bytes);
                         let len = email.len();
                         if len > 5 && email[1..len - 4].contains('@') {
-                            Some(json!({
+                            return Some(json!({
                                 "new_email": email.as_ref()
                             }));
                         }
