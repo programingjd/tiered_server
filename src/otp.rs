@@ -16,8 +16,12 @@ use crate::user::{IdentificationMethod, User};
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::{ALLOW, CONTENT_TYPE, HeaderValue, LOCATION, SET_COOKIE};
-use hyper::{Method, Request, Response, StatusCode};
+use hyper::header::{
+    ALLOW, CONTENT_TYPE, HeaderValue, IF_MATCH, IF_MODIFIED_SINCE, IF_NONE_MATCH,
+    IF_UNMODIFIED_SINCE, LOCATION, SET_COOKIE,
+};
+use hyper::http::uri::PathAndQuery;
+use hyper::{Method, Request, Response, StatusCode, Uri};
 use minijinja::Environment;
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use ring::hmac::{HMAC_SHA256, Key, sign};
@@ -488,12 +492,10 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                         .unwrap();
                                 }
                                 if elapsed > OTP_VALIDITY_DURATION {
-                                    let body = error_page(*API_ERROR_OTP_EXPIRED);
                                     info!("410 /api/otp{path}");
-                                    return Response::builder()
-                                        .status(StatusCode::GONE)
-                                        .body(body)
-                                        .unwrap();
+                                    let mut response = error_page(request, *API_ERROR_OTP_EXPIRED);
+                                    *response.status_mut() = StatusCode::GONE;
+                                    return response;
                                 }
                             } else if otp.action.otp_validity_duration().is_some() {
                                 return Response::builder()
@@ -522,12 +524,10 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                 .body(Either::Right(Empty::new()))
                                 .unwrap()
                         } else {
-                            let body = error_page(*API_ERROR_OTP_ALREADY_USED);
                             info!("409 /api/otp{path}");
-                            Response::builder()
-                                .status(StatusCode::CONFLICT)
-                                .body(body)
-                                .unwrap()
+                            let mut response = error_page(request, *API_ERROR_OTP_ALREADY_USED);
+                            *response.status_mut() = StatusCode::CONFLICT;
+                            response
                         }
                     } else {
                         info!("400 /api/otp{path}");
@@ -547,21 +547,24 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
         .unwrap()
 }
 
-fn error_page(error_name: &str) -> Either<Full<Bytes>, Empty<Bytes>> {
-    match static_handler()
-        .entry(&format!(
+fn error_page(
+    mut request: Request<Incoming>,
+    error_name: &str,
+) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+    let headers = request.headers_mut();
+    headers.remove(IF_MATCH);
+    headers.remove(IF_NONE_MATCH);
+    headers.remove(IF_MODIFIED_SINCE);
+    headers.remove(IF_UNMODIFIED_SINCE);
+    let uri = request.uri().clone();
+    let mut uri_parts = uri.into_parts();
+    uri_parts.path_and_query = Some(
+        PathAndQuery::try_from(format!(
             "{}{error_name}",
             API_PATH_PREFIX.with_trailing_slash
         ))
-        .and_then(|it| it.content.clone())
-    {
-        Some(content) => Either::Left(Full::from(content)),
-        None => {
-            warn!(
-                "missing error page: {}{error_name}",
-                API_PATH_PREFIX.with_trailing_slash
-            );
-            Either::Right(Empty::new())
-        }
-    }
+        .unwrap(),
+    );
+    *request.uri_mut() = Uri::from_parts(uri_parts).unwrap();
+    static_handler().handle_hyper_request(request)
 }
