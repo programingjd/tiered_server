@@ -1,9 +1,9 @@
 use crate::api::Extension;
 use crate::email::Email;
 use crate::env::ConfigurationKey::{
-    ApiErrorOtpExpired, EmailAccountCreatedTemplate, EmailAccountCreatedTitle,
-    EmailOneTimeLoginTemplate, EmailOneTimeLoginTitle, EmailVerifyEmailTemplate,
-    EmailVerifyEmailTitle, OtpSigningKey,
+    ApiErrorOtpAlreadyUsed, ApiErrorOtpExpired, EmailAccountCreatedTemplate,
+    EmailAccountCreatedTitle, EmailOneTimeLoginTemplate, EmailOneTimeLoginTitle,
+    EmailVerifyEmailTemplate, EmailVerifyEmailTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
 use crate::handler::static_handler;
@@ -58,7 +58,10 @@ static EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE: LazyLock<Option<&'static str>> =
 
 //noinspection SpellCheckingInspection
 static API_ERROR_OTP_EXPIRED: LazyLock<&'static str> =
-    LazyLock::new(|| secret_value(ApiErrorOtpExpired).unwrap_or("expired"));
+    LazyLock::new(|| secret_value(ApiErrorOtpExpired).unwrap_or("otp-expired"));
+//noinspection SpellCheckingInspection
+static API_ERROR_OTP_ALREADY_USED: LazyLock<&'static str> =
+    LazyLock::new(|| secret_value(ApiErrorOtpAlreadyUsed).unwrap_or("otp-already-used"));
 
 const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
@@ -485,24 +488,8 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                         .unwrap();
                                 }
                                 if elapsed > OTP_VALIDITY_DURATION {
+                                    let body = error_page(*API_ERROR_OTP_EXPIRED);
                                     info!("410 /api/otp{path}");
-                                    let error_name = *API_ERROR_OTP_EXPIRED;
-                                    let body = match static_handler()
-                                        .entry(&format!(
-                                            "{}{error_name}",
-                                            API_PATH_PREFIX.with_trailing_slash
-                                        ))
-                                        .and_then(|it| it.content.clone())
-                                    {
-                                        Some(content) => Either::Left(Full::from(content)),
-                                        None => {
-                                            warn!(
-                                                "missing error template: {}{error_name}",
-                                                API_PATH_PREFIX.with_trailing_slash
-                                            );
-                                            Either::Right(Empty::new())
-                                        }
-                                    };
                                     return Response::builder()
                                         .status(StatusCode::GONE)
                                         .body(body)
@@ -535,10 +522,11 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                 .body(Either::Right(Empty::new()))
                                 .unwrap()
                         } else {
+                            let body = error_page(*API_ERROR_OTP_ALREADY_USED);
                             info!("409 /api/otp{path}");
                             Response::builder()
                                 .status(StatusCode::CONFLICT)
-                                .body(Either::Right(Empty::new()))
+                                .body(body)
                                 .unwrap()
                         }
                     } else {
@@ -557,4 +545,23 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
         .status(StatusCode::NOT_FOUND)
         .body(Either::Right(Empty::new()))
         .unwrap()
+}
+
+fn error_page(error_name: &str) -> Either<Full<Bytes>, Empty<Bytes>> {
+    match static_handler()
+        .entry(&format!(
+            "{}{error_name}",
+            API_PATH_PREFIX.with_trailing_slash
+        ))
+        .and_then(|it| it.content.clone())
+    {
+        Some(content) => Either::Left(Full::from(content)),
+        None => {
+            warn!(
+                "missing error page: {}{error_name}",
+                API_PATH_PREFIX.with_trailing_slash
+            );
+            Either::Right(Empty::new())
+        }
+    }
 }

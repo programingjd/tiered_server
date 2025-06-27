@@ -77,6 +77,7 @@ pub enum ConfigurationKey {
     EmailVerifyEmailTitle,
     EmailVerifyEmailTemplate,
     ApiErrorOtpExpired,
+    ApiErrorOtpAlreadyUsed,
     AdminUsers,
     Other { variable_name: &'static str },
 }
@@ -118,6 +119,7 @@ impl ConfigurationKey {
             Self::EmailVerifyEmailTitle => "EMAIL_VERIFY_EMAIL_TITLE",
             Self::EmailVerifyEmailTemplate => "EMAIL_VERIFY_EMAIL_TEMPLATE",
             Self::ApiErrorOtpExpired => "API_ERROR_OTP_EXPIRED",
+            Self::ApiErrorOtpAlreadyUsed => "API_ERROR_OTP_ALREADY_USED",
             Self::AdminUsers => "ADMIN_USERS",
             Self::Other { variable_name } => variable_name,
         }
