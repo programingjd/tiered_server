@@ -127,7 +127,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
         .await
         .expect("could not bind to 443");
 
-    ensure_admin_users_exist(&snapshot(), &static_handler())
+    ensure_admin_users_exist(&snapshot())
         .await
         .expect("failed to get or create admin users");
 

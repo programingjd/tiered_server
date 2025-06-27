@@ -1,8 +1,9 @@
 use crate::api::Extension;
 use crate::email::Email;
 use crate::env::ConfigurationKey::{
-    EmailAccountCreatedTemplate, EmailAccountCreatedTitle, EmailOneTimeLoginTemplate,
-    EmailOneTimeLoginTitle, EmailVerifyEmailTemplate, EmailVerifyEmailTitle, OtpSigningKey,
+    ApiErrorOtpExpired, EmailAccountCreatedTemplate, EmailAccountCreatedTitle,
+    EmailOneTimeLoginTemplate, EmailOneTimeLoginTitle, EmailVerifyEmailTemplate,
+    EmailVerifyEmailTitle, OtpSigningKey,
 };
 use crate::env::secret_value;
 use crate::handler::static_handler;
@@ -28,7 +29,6 @@ use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
 use tokio::spawn;
 use tracing::{debug, info, warn};
-use zip_static_handler::handler::Handler;
 
 //noinspection SpellCheckingInspection
 static SIGNING_KEY: LazyLock<&'static str> = LazyLock::new(|| {
@@ -55,6 +55,10 @@ static EMAIL_ACCOUNT_VERIFY_EMAIL_TITLE: LazyLock<Option<&'static str>> =
 //noinspection SpellCheckingInspection
 static EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(EmailVerifyEmailTemplate));
+
+//noinspection SpellCheckingInspection
+static API_ERROR_OTP_EXPIRED: LazyLock<&'static str> =
+    LazyLock::new(|| secret_value(ApiErrorOtpExpired).unwrap_or("expired"));
 
 const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
 
@@ -162,7 +166,6 @@ impl Otp {
         action: Action,
         value: Option<Value>,
         snapshot: &Arc<Snapshot>,
-        handler: &Arc<Handler>,
         server_name: &Arc<String>,
     ) -> Option<()> {
         let email = match &user.identification {
@@ -170,14 +173,13 @@ impl Otp {
             _ => return None,
         };
         let otp = Self::create(user, action, value, snapshot).await?;
-        Self::send_otp(user, email, otp, handler, server_name).await
+        Self::send_otp(user, email, otp, server_name).await
     }
 
     async fn send_otp(
         user: &User,
         email: &str,
         otp: Self,
-        handler: &Arc<Handler>,
         server_name: &Arc<String>,
     ) -> Option<()> {
         let id = otp.id.as_str();
@@ -189,7 +191,7 @@ impl Otp {
         let (subject, template_name) = otp.action.email_template();
         let subject = subject?;
         let template_name = template_name?;
-        let content = match handler
+        let content = match static_handler()
             .entry(&format!(
                 "{}{template_name}",
                 API_PATH_PREFIX.with_trailing_slash
@@ -417,15 +419,7 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                     let server_name = server_name.clone();
                     #[allow(clippy::let_underscore_future)]
                     let _ = spawn(async move {
-                        Otp::send(
-                            &user,
-                            Action::Login,
-                            None,
-                            &snapshot,
-                            &static_handler(),
-                            &server_name,
-                        )
-                        .await
+                        Otp::send(&user, Action::Login, None, &snapshot, &server_name).await
                     });
                 }
             }
@@ -471,11 +465,18 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                     .as_secs() as u32;
                                 let elapsed = now - timestamp;
                                 let duration = otp.action.otp_validity_duration().unwrap_or(0);
-                                if otp.timestamp != timestamp + duration || timestamp > now + duration {
+                                if otp.timestamp != timestamp + duration
+                                    || timestamp > now + duration
+                                {
                                     if otp.timestamp != timestamp + duration {
-                                        debug!("otp timestamp {} != {timestamp} + {duration}", otp.timestamp);
+                                        debug!(
+                                            "otp timestamp {} != {timestamp} + {duration}",
+                                            otp.timestamp
+                                        );
                                     } else {
-                                        debug!("otp timestamp {timestamp} > {now} (now) + {duration}");
+                                        debug!(
+                                            "otp timestamp {timestamp} > {now} (now) + {duration}"
+                                        );
                                     }
                                     info!("400 /api/otp{path}");
                                     return Response::builder()
@@ -485,9 +486,26 @@ pub(crate) async fn handle_otp<Ext: Extension + Send + Sync>(
                                 }
                                 if elapsed > OTP_VALIDITY_DURATION {
                                     info!("410 /api/otp{path}");
+                                    let error_name = *API_ERROR_OTP_EXPIRED;
+                                    let body = match static_handler()
+                                        .entry(&format!(
+                                            "{}{error_name}",
+                                            API_PATH_PREFIX.with_trailing_slash
+                                        ))
+                                        .and_then(|it| it.content.clone())
+                                    {
+                                        Some(content) => Either::Left(Full::from(content)),
+                                        None => {
+                                            warn!(
+                                                "missing error template: {}{error_name}",
+                                                API_PATH_PREFIX.with_trailing_slash
+                                            );
+                                            Either::Right(Empty::new())
+                                        }
+                                    };
                                     return Response::builder()
                                         .status(StatusCode::GONE)
-                                        .body(Either::Right(Empty::new()))
+                                        .body(body)
                                         .unwrap();
                                 }
                             } else if otp.action.otp_validity_duration().is_some() {

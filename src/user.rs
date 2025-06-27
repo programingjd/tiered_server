@@ -1,6 +1,5 @@
 use crate::env::ConfigurationKey::{AdminUsers, ValidationTotpSecret};
 use crate::env::secret_value;
-use crate::handler::static_handler;
 use crate::headers::{GET, GET_POST, JSON, POST};
 use crate::norm::{
     DEFAULT_COUNTRY_CODE, normalize_email, normalize_first_name, normalize_last_name,
@@ -23,7 +22,6 @@ use std::sync::{Arc, LazyLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use totp_rfc6238::TotpGenerator;
 use tracing::{info, trace};
-use zip_static_handler::handler::Handler;
 
 const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
 const SECS_PER_YEAR: u64 = 31_556_952;
@@ -88,10 +86,7 @@ fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
 
-pub(crate) async fn ensure_admin_users_exist(
-    snapshot: &Arc<Snapshot>,
-    handler: &Arc<Handler>,
-) -> Option<()> {
+pub(crate) async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
     let users = snapshot
         .list::<User>("acc/")
@@ -150,7 +145,6 @@ pub(crate) async fn ensure_admin_users_exist(
                 false,
                 true,
                 snapshot,
-                handler,
                 &Arc::new(server_name),
             )
             .await?;
@@ -173,7 +167,6 @@ impl User {
         needs_validation: bool,
         skip_notification: bool,
         snapshot: &Arc<Snapshot>,
-        handler: &Arc<Handler>,
         server_name: &Arc<String>,
     ) -> Option<Self> {
         let timestamp = SystemTime::now()
@@ -210,15 +203,7 @@ impl User {
         };
         Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            Otp::send(
-                &user,
-                Action::FirstLogin,
-                None,
-                snapshot,
-                handler,
-                server_name,
-            )
-            .await?;
+            Otp::send(&user, Action::FirstLogin, None, snapshot, server_name).await?;
         }
         Some(user)
     }
@@ -394,7 +379,6 @@ pub(crate) async fn handle_user(
                                             Action::FirstLogin,
                                             None,
                                             &snapshot,
-                                            &static_handler(),
                                             server_name,
                                         )
                                         .await
@@ -453,7 +437,6 @@ pub(crate) async fn handle_user(
                         Action::EmailUpdate,
                         Some(value),
                         &snapshot,
-                        &static_handler(),
                         server_name,
                     )
                     .await
@@ -634,7 +617,6 @@ pub(crate) async fn handle_user(
                             needs_moderation,
                             false,
                             &snapshot,
-                            &static_handler(),
                             server_name,
                         )
                         .await;
