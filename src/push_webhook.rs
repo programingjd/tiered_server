@@ -118,12 +118,12 @@ async fn update() -> Option<()> {
                     return Some(());
                 }
                 Err(err) => {
-                    warn!("failed to update static content: {err}");
+                    warn!("failed to update static content: {err:?}");
                 }
             }
         }
         Err(err) => {
-            warn!("failed to download static content: {err}");
+            warn!("failed to download static content: {err:?}");
         }
     }
     None

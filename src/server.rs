@@ -205,7 +205,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                                 // redirect to the login page
                                                                 let response = match request.method() {
                                                                     &Method::HEAD | &Method::GET => {
-                                                                        info!("302 https://{server_name}{path}");
+                                                                        info!("302 {path}");
                                                                         let mut response =
                                                                             Response::builder().status(
                                                                                 StatusCode::FOUND,
@@ -226,7 +226,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                                         response
                                                                     }
                                                                     _ => {
-                                                                        info!("403 https://{server_name}{path}");
+                                                                        info!("403 {path}");
                                                                         Response::builder().status(
                                                                             StatusCode::FORBIDDEN,
                                                                         )
@@ -246,7 +246,7 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                 // static content
                                                 let path = path.to_string();
                                                 let response = handler.handle_hyper_request(request);
-                                                info!("{} https://{server_name}{path}", response.status().as_u16());
+                                                info!("{} {path}", response.status().as_u16());
                                                 Ok::<_, Infallible>(response)
                                             }
                                         }

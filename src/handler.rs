@@ -35,7 +35,7 @@ pub fn static_handler() -> Arc<Handler> {
                     ))
                     .await
                     .map_err(|err| {
-                        warn!("failed to download static content: {}", err);
+                        warn!("failed to download static content: {err:?}");
                         err
                     })
                     .ok()
@@ -56,7 +56,7 @@ pub fn static_handler() -> Arc<Handler> {
                 .with_zip(zip)
                 .try_build()
                 .map_err(|err| {
-                    warn!("failed to build static content handler: {}", err);
+                    warn!("failed to build static content handler: {err:?}");
                     err
                 })
                 .expect("failed to extract static content"),

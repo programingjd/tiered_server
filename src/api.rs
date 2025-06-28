@@ -1,6 +1,8 @@
-use crate::auth::handle_auth;
-use crate::otp::{Action, handle_otp};
-use crate::user::{RequestOrResponse, User, handle_user};
+use crate::auth::handler::handle_auth;
+use crate::otp::action::Action;
+use crate::otp::handler::handle_otp;
+use crate::user::User;
+use crate::user::handler::{RequestOrResponse, handle_user};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
@@ -35,17 +37,20 @@ pub(crate) async fn handle_api<Ext: Extension + Send + Sync>(
         match handle_user(request, server_name).await {
             RequestOrResponse::Res(response) => response,
             RequestOrResponse::Req(request) => {
-                if let Some(response) = extension.handle_api_extension(request, server_name).await {
-                    response
-                } else {
-                    Response::builder()
-                        .status(StatusCode::NOT_FOUND)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap()
-                }
+                handle_api_extension(request, server_name, extension).await
             }
         }
-    } else if let Some(response) = extension.handle_api_extension(request, server_name).await {
+    } else {
+        handle_api_extension(request, server_name, extension).await
+    }
+}
+
+async fn handle_api_extension<Ext: Extension + Send + Sync>(
+    request: Request<Incoming>,
+    server_name: &Arc<String>,
+    extension: &Ext,
+) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+    if let Some(response) = extension.handle_api_extension(request, server_name).await {
         response
     } else {
         Response::builder()

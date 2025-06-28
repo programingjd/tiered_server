@@ -1,4 +1,3 @@
-use crate::env;
 use crate::env::ConfigurationKey::StoreEncryptionKey;
 use crate::env::{ConfigurationKey, secret_value};
 use base64_simd::URL_SAFE_NO_PAD;
@@ -350,11 +349,11 @@ fn store() -> Option<Box<dyn ObjectStore>> {
 }
 
 fn s3_store() -> Option<AmazonS3> {
-    let region = secret_value(env::ConfigurationKey::S3Region)?;
-    let endpoint = secret_value(env::ConfigurationKey::S3Endpoint)?;
-    let bucket = secret_value(env::ConfigurationKey::S3Bucket)?;
-    let access_key = secret_value(env::ConfigurationKey::S3AccessKey)?;
-    let secret_key = secret_value(env::ConfigurationKey::S3SecretKey)?;
+    let region = secret_value(ConfigurationKey::S3Region)?;
+    let endpoint = secret_value(ConfigurationKey::S3Endpoint)?;
+    let bucket = secret_value(ConfigurationKey::S3Bucket)?;
+    let access_key = secret_value(ConfigurationKey::S3AccessKey)?;
+    let secret_key = secret_value(ConfigurationKey::S3SecretKey)?;
     AmazonS3Builder::new()
         .with_region(region)
         .with_endpoint(endpoint)

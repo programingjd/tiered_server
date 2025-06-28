@@ -20,13 +20,13 @@ pub fn normalize_email(email: &str) -> String {
                 if local.contains('.') {
                     format!("{}@{}", local.split('.').collect::<String>(), domain)
                 } else {
-                    format!("{}@{}", local, domain)
+                    format!("{local}@{domain}")
                 }
             } else if domain
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
             {
-                format!("{}@{}", local, domain)
+                format!("{local}@{domain}")
             } else {
                 let domain = domain
                     .split('.')
@@ -35,13 +35,13 @@ pub fn normalize_email(email: &str) -> String {
                             Cow::Borrowed(label)
                         } else {
                             punycode::encode(label)
-                                .map(|it| Cow::Owned(format!("xn--{}", it)))
+                                .map(|it| Cow::Owned(format!("xn--{it}")))
                                 .unwrap_or(Cow::Borrowed(label))
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(".");
-                format!("{}@{}", local, domain)
+                format!("{local}@{domain}")
             };
         }
     }
@@ -60,7 +60,7 @@ pub fn normalize_phone_number(number: &str, default_country_code: u16) -> String
         if filtered_number.starts_with('0') && default_country_code != 39 {
             format!("+{default_country_code}{}", &filtered_number[1..])
         } else {
-            format!("+{default_country_code}{}", filtered_number)
+            format!("+{default_country_code}{filtered_number}")
         }
     } else {
         let filtered_number = trimmed_number

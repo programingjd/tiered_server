@@ -7,6 +7,7 @@ use zip_static_handler::http::headers::{
 };
 
 pub const JSON: HeaderValue = HeaderValue::from_static("application/json");
+pub const TEXT: HeaderValue = HeaderValue::from_static("text/plain");
 pub const GET: HeaderValue = HeaderValue::from_static("GET");
 pub const HEAD: HeaderValue = HeaderValue::from_static("HEAD");
 pub const POST: HeaderValue = HeaderValue::from_static("POST");
