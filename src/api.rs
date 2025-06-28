@@ -2,7 +2,7 @@ use crate::auth::handler::handle_auth;
 use crate::otp::action::Action;
 use crate::otp::handler::handle_otp;
 use crate::user::User;
-use crate::user::handler::{RequestOrResponse, handle_user};
+use crate::user::handler::handle_user;
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
@@ -34,18 +34,13 @@ pub(crate) async fn handle_api<Ext: Extension + Send + Sync>(
     } else if path == "/otp" || path.starts_with("/otp/") {
         handle_otp(request, server_name, extension).await
     } else if path == "/user" || path.starts_with("/user/") {
-        match handle_user(request, server_name).await {
-            RequestOrResponse::Res(response) => response,
-            RequestOrResponse::Req(request) => {
-                handle_api_extension(request, server_name, extension).await
-            }
-        }
+        handle_user(request, server_name, extension).await
     } else {
         handle_api_extension(request, server_name, extension).await
     }
 }
 
-async fn handle_api_extension<Ext: Extension + Send + Sync>(
+pub(crate) async fn handle_api_extension<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
     extension: &Ext,

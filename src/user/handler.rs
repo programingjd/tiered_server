@@ -1,3 +1,4 @@
+use crate::api::{Extension, handle_api_extension};
 use crate::headers::{GET, GET_POST, POST};
 use crate::prefix::API_PATH_PREFIX;
 use crate::session::SessionState;
@@ -10,15 +11,11 @@ use hyper::{Method, Request, Response, StatusCode};
 use std::sync::Arc;
 use tracing::info;
 
-pub(crate) enum RequestOrResponse {
-    Req(Request<Incoming>),
-    Res(Response<Either<Full<Bytes>, Empty<Bytes>>>),
-}
-
-pub(crate) async fn handle_user(
+pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
-) -> RequestOrResponse {
+    extension: &Ext,
+) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let path = request
         .uri()
         .path()
@@ -27,24 +24,22 @@ pub(crate) async fn handle_user(
         .strip_prefix("/user")
         .unwrap();
     if path == "/" || path.is_empty() {
-        return if request.method() == Method::POST {
-            RequestOrResponse::Res(endpoints::root::post(request, server_name).await)
+        if request.method() == Method::POST {
+            endpoints::root::post(request, server_name).await
         } else if request.method() == Method::GET {
-            RequestOrResponse::Res(endpoints::root::get(request).await)
+            endpoints::root::get(request).await
         } else {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET_POST);
             info!("405 {}/user", API_PATH_PREFIX.without_trailing_slash);
-            RequestOrResponse::Res(
-                response
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap(),
-            )
-        };
+            response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap()
+        }
     } else if path == "/email" {
-        return RequestOrResponse::Res(if request.method() != Method::POST {
+        if request.method() != Method::POST {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, POST);
@@ -55,7 +50,7 @@ pub(crate) async fn handle_user(
                 .unwrap()
         } else {
             endpoints::email::post(request, server_name).await
-        });
+        }
     } else if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot();
         if SessionState::from_headers(request.headers(), &snapshot)
@@ -63,7 +58,7 @@ pub(crate) async fn handle_user(
             .is_admin()
         {
             if path == "/registrations/code" {
-                return RequestOrResponse::Res(if request.method() != Method::GET {
+                if request.method() != Method::GET {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET);
@@ -77,9 +72,9 @@ pub(crate) async fn handle_user(
                         .unwrap()
                 } else {
                     endpoints::admin::registration_code::get().await
-                });
+                }
             } else if path == "/users" {
-                return RequestOrResponse::Res(if request.method() != Method::GET {
+                if request.method() != Method::GET {
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET);
@@ -93,9 +88,9 @@ pub(crate) async fn handle_user(
                         .unwrap()
                 } else {
                     endpoints::admin::users::get(&snapshot).await
-                });
+                }
             } else if path == "/registrations" {
-                return RequestOrResponse::Res(if request.method() == Method::GET {
+                if request.method() == Method::GET {
                     endpoints::admin::registrations::get(&snapshot).await
                 } else if request.method() == Method::POST {
                     endpoints::admin::registrations::post(request, server_name, &snapshot).await
@@ -107,26 +102,25 @@ pub(crate) async fn handle_user(
                         "405 {}/user/admin/registrations",
                         API_PATH_PREFIX.without_trailing_slash
                     );
-                    return RequestOrResponse::Res(
-                        response
-                            .status(StatusCode::METHOD_NOT_ALLOWED)
-                            .body(Either::Right(Empty::new()))
-                            .unwrap(),
-                    );
-                });
+                    response
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap()
+                }
+            } else {
+                handle_api_extension(request, server_name, extension).await
             }
         } else {
             info!(
                 "403 {}/user/admin{path}",
                 API_PATH_PREFIX.without_trailing_slash
             );
-            return RequestOrResponse::Res(
-                Response::builder()
-                    .status(StatusCode::FORBIDDEN)
-                    .body(Either::Right(Empty::new()))
-                    .unwrap(),
-            );
+            Response::builder()
+                .status(StatusCode::FORBIDDEN)
+                .body(Either::Right(Empty::new()))
+                .unwrap()
         }
+    } else {
+        handle_api_extension(request, server_name, extension).await
     }
-    RequestOrResponse::Req(request)
 }
