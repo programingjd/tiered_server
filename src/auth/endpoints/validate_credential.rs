@@ -99,7 +99,7 @@ pub(crate) async fn post(
                 .is_some()
             {
                 if let Some(session) =
-                    User::create_session(user_id, &snapshot, Some(passkey_id)).await
+                    User::create_session(user_id, snapshot, Some(passkey_id)).await
                 {
                     info!(
                         "200 {}/auth/validate_credential",

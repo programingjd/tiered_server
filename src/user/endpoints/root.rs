@@ -21,6 +21,7 @@ use tracing::info;
 
 const SECS_PER_YEAR: u64 = 31_556_952;
 
+#[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn post(
     request: Request<Incoming>,
     server_name: &Arc<String>,
@@ -193,10 +194,7 @@ struct UserResponse {
     metadata: Option<Value>,
 }
 
-pub(crate) async fn get(
-    request: Request<Incoming>,
-    server_name: &Arc<String>,
-) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
+pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let snapshot = snapshot();
     if let SessionState::Valid { user, session } =
         SessionState::from_headers(request.headers(), &snapshot).await
@@ -208,7 +206,7 @@ pub(crate) async fn get(
             IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
             _ => (None, None),
         };
-        info!("200 https://{server_name}/api/user");
+        info!("200 {}/api/user", API_PATH_PREFIX.without_trailing_slash);
         Response::builder()
             .status(StatusCode::OK)
             .header(CONTENT_TYPE, JSON)

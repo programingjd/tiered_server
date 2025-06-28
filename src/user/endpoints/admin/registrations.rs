@@ -1,5 +1,6 @@
 use crate::otp::Otp;
 use crate::otp::action::Action;
+use crate::prefix::API_PATH_PREFIX;
 use crate::store::Snapshot;
 use crate::user::User;
 use crate::user::endpoints::admin::{UserOrRegistration, list};
@@ -61,11 +62,14 @@ pub(crate) async fn post(
                         .await
                         .is_some()
                     && (skip_notification
-                        || Otp::send(&user, Action::FirstLogin, None, &snapshot, server_name)
+                        || Otp::send(&user, Action::FirstLogin, None, snapshot, server_name)
                             .await
                             .is_some())
                 {
-                    info!("202 https://{server_name}/api/user/admin/registrations");
+                    info!(
+                        "202 {}/user/admin/registrations",
+                        API_PATH_PREFIX.without_trailing_slash
+                    );
                     return Response::builder()
                         .status(StatusCode::ACCEPTED)
                         .body(Either::Right(Empty::new()))
@@ -74,7 +78,10 @@ pub(crate) async fn post(
             }
         }
     }
-    info!("400 https://{server_name}/api/user/admin/registrations");
+    info!(
+        "400 {}/user/admin/registrations",
+        API_PATH_PREFIX.without_trailing_slash
+    );
     Response::builder()
         .status(StatusCode::BAD_REQUEST)
         .body(Either::Right(Empty::new()))

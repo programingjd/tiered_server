@@ -15,7 +15,6 @@ pub(crate) enum RequestOrResponse {
     Res(Response<Either<Full<Bytes>, Empty<Bytes>>>),
 }
 
-#[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn handle_user(
     request: Request<Incoming>,
     server_name: &Arc<String>,
@@ -31,7 +30,7 @@ pub(crate) async fn handle_user(
         return if request.method() == Method::POST {
             RequestOrResponse::Res(endpoints::root::post(request, server_name).await)
         } else if request.method() == Method::GET {
-            RequestOrResponse::Res(endpoints::root::get(request, server_name).await)
+            RequestOrResponse::Res(endpoints::root::get(request).await)
         } else {
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
@@ -84,7 +83,10 @@ pub(crate) async fn handle_user(
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET);
-                    info!("405 https://{server_name}/api/user/admin/users");
+                    info!(
+                        "405 {}/user/admin/users",
+                        API_PATH_PREFIX.without_trailing_slash
+                    );
                     response
                         .status(StatusCode::METHOD_NOT_ALLOWED)
                         .body(Either::Right(Empty::new()))
@@ -101,7 +103,10 @@ pub(crate) async fn handle_user(
                     let mut response = Response::builder();
                     let headers = response.headers_mut().unwrap();
                     headers.insert(ALLOW, GET_POST);
-                    info!("405 https://{server_name}/api/user/admin/registrations");
+                    info!(
+                        "405 {}/user/admin/registrations",
+                        API_PATH_PREFIX.without_trailing_slash
+                    );
                     return RequestOrResponse::Res(
                         response
                             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -111,7 +116,10 @@ pub(crate) async fn handle_user(
                 });
             }
         } else {
-            info!("403 https://{server_name}/api/user/admin{path}");
+            info!(
+                "403 {}/user/admin{path}",
+                API_PATH_PREFIX.without_trailing_slash
+            );
             return RequestOrResponse::Res(
                 Response::builder()
                     .status(StatusCode::FORBIDDEN)
