@@ -63,14 +63,15 @@ fn update_store_cache_loop() {
             .unwrap()
             .block_on(async move {
                 let mut skip_counter: u8 = 0;
-                let cache_revision = CACHE_REVISION.load(Ordering::Acquire);
                 // the delay needs to be at least 1 second so that we don't miss later updates
                 // with the same timestamp (timestamp resolution is 1 second)
                 let mut delay = interval(Duration::from_millis(1_500_u64));
                 delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 loop {
+                    let cache_revision = CACHE_REVISION.load(Ordering::Acquire);
                     delay.tick().await;
-                    if snapshot_revision().await.unwrap_or_default() == cache_revision {
+                    let remote_revision = snapshot_revision().await.unwrap_or_default();
+                    if remote_revision == cache_revision {
                         skip_counter += 1;
                         // update cache anyway every minute (40 * 1500ms)
                         if skip_counter == 40 {
@@ -81,11 +82,12 @@ fn update_store_cache_loop() {
                     }
                     if let Some(snapshot) = new_snapshot().await {
                         let revision = snapshot.revision;
+                        let len = snapshot.entries.len();
                         SNAPSHOT.set(Arc::new(snapshot));
                         CACHE_REVISION.store(revision, Ordering::Release);
-                        debug!("snapshot updated (revision: {revision})");
+                        debug!("snapshot updated (revision: {revision}, {len} entries)");
                     } else {
-                        warn!("update snapshot failed");
+                        warn!("snapshot update failed");
                     }
                 }
             });
@@ -120,6 +122,7 @@ pub fn snapshot() -> Arc<Snapshot> {
             .expect("failed to create snapshot"),
         );
         SNAPSHOT.set(snapshot.clone());
+        CACHE_REVISION.store(snapshot.revision, Ordering::Release);
         info!("store cache is ready");
         update_store_cache_loop();
         snapshot
@@ -127,15 +130,18 @@ pub fn snapshot() -> Arc<Snapshot> {
 }
 
 async fn snapshot_revision() -> Option<u32> {
-    Some(
-        store()?
-            .list(Some(&Path::from("rev")))
-            .next()
-            .await?
-            .ok()?
-            .last_modified
-            .timestamp() as u32,
-    )
+    let revision = store()?
+        .head(&Path::from("rev"))
+        .await
+        .map_err(|err| {
+            warn!("failed to get remove store revision:\n{err:?}");
+            err
+        })
+        .ok()?
+        .last_modified
+        .timestamp() as u32;
+    trace!("remote cache revision: {revision}");
+    Some(revision)
 }
 
 pub async fn new_snapshot() -> Option<Snapshot> {
@@ -143,13 +149,13 @@ pub async fn new_snapshot() -> Option<Snapshot> {
     let reference = reference.as_deref();
     let len = if let Some(reference) = reference {
         let len = reference.entries.len();
-        trace!(
-            "update snapshot with reference: {} ({len} entries)",
+        debug!(
+            "differential snapshot (initial revision: {}, {len} entries)",
             reference.revision
         );
         256 + len
     } else {
-        trace!("update snapshot without reference");
+        debug!("full snapshot");
         256
     };
     let store = store()?;
@@ -162,12 +168,14 @@ pub async fn new_snapshot() -> Option<Snapshot> {
         match metadata {
             Ok(metadata) => {
                 if metadata.size == 0 {
+                    if metadata.location.as_ref() == "rev" {
+                        let timestamp = metadata.last_modified.timestamp() as u32;
+                        revision = timestamp;
+                    }
                     continue;
                 }
                 let timestamp = metadata.last_modified.timestamp() as u32;
-                if metadata.location.as_ref() == "rev" {
-                    revision = timestamp;
-                } else if let Some(existing) =
+                if let Some(existing) =
                     reference.and_then(|it| it.entries.get(metadata.location.as_ref()))
                 {
                     if existing.timestamp == timestamp {
