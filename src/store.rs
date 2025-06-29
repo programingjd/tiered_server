@@ -70,7 +70,7 @@ fn update_store_cache_loop() {
                 delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 loop {
                     delay.tick().await;
-                    if snapshot_revision().await == Some(cache_revision) {
+                    if snapshot_revision().await.unwrap_or_default() == cache_revision {
                         skip_counter += 1;
                         // update cache anyway every minute (40 * 1500ms)
                         if skip_counter == 40 {
