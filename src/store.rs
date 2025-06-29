@@ -15,13 +15,13 @@ use ring::aead::{
 };
 use ring::error::Unspecified;
 use ring::rand::{SecureRandom, SystemRandom};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::io::Read;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use std::{iter, thread};
 use tar::{Archive, Builder, Header};
 use tokio::time::{MissedTickBehavior, interval};
@@ -43,8 +43,7 @@ static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
 
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
-    #[allow(dead_code)]
-    timestamp: u32,
+    revision: u32,
 }
 
 struct Entry {
@@ -52,10 +51,9 @@ struct Entry {
     timestamp: u32,
 }
 
-static CACHE_VERSION: AtomicU32 = AtomicU32::new(0);
+static CACHE_REVISION: AtomicU32 = AtomicU32::new(0);
 
 fn update_store_cache_loop() {
-    CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
     thread::spawn(move || {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
@@ -64,15 +62,28 @@ fn update_store_cache_loop() {
             .build()
             .unwrap()
             .block_on(async move {
-                let mut delay = interval(Duration::from_millis(1_000_u64));
+                let mut skip_counter: u8 = 0;
+                let cache_revision = CACHE_REVISION.load(Ordering::Acquire);
+                // the delay needs to be at least 1 second so that we don't miss later updates
+                // with the same timestamp (timestamp resolution is 1 second)
+                let mut delay = interval(Duration::from_millis(1_500_u64));
                 delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
                 loop {
                     delay.tick().await;
+                    if snapshot_revision().await == Some(cache_revision) {
+                        skip_counter += 1;
+                        // update cache anyway every minute (40 * 1500ms)
+                        if skip_counter == 40 {
+                            skip_counter = 0;
+                        } else {
+                            continue;
+                        }
+                    }
                     if let Some(snapshot) = new_snapshot().await {
+                        let revision = snapshot.revision;
                         SNAPSHOT.set(Arc::new(snapshot));
-                        let version =
-                            CACHE_VERSION.fetch_add(1, std::sync::atomic::Ordering::Release);
-                        trace!("snapshot updated (version: {version})");
+                        CACHE_REVISION.store(revision, Ordering::Release);
+                        debug!("snapshot updated (revision: {revision})");
                     } else {
                         warn!("update snapshot failed");
                     }
@@ -115,29 +126,38 @@ pub fn snapshot() -> Arc<Snapshot> {
     }
 }
 
+async fn snapshot_revision() -> Option<u32> {
+    Some(
+        store()?
+            .list(Some(&Path::from("rev")))
+            .next()
+            .await?
+            .ok()?
+            .last_modified
+            .timestamp() as u32,
+    )
+}
+
 pub async fn new_snapshot() -> Option<Snapshot> {
     let reference = SNAPSHOT.get_ref();
     let reference = reference.as_deref();
     let len = if let Some(reference) = reference {
         let len = reference.entries.len();
         trace!(
-            "update snapshot with reference: {} ({len})",
-            reference.timestamp,
+            "update snapshot with reference: {} ({len} entries)",
+            reference.revision
         );
         256 + len
     } else {
         trace!("update snapshot without reference");
         256
     };
-    let timestamp = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as u32;
     let store = store()?;
     let mut entries = HashMap::with_capacity(len);
     let mut iter = store.list(None);
     let mut pending = vec![];
     let store = Arc::new(store);
+    let mut revision: u32 = 0;
     while let Some(metadata) = iter.next().await {
         match metadata {
             Ok(metadata) => {
@@ -145,7 +165,9 @@ pub async fn new_snapshot() -> Option<Snapshot> {
                     continue;
                 }
                 let timestamp = metadata.last_modified.timestamp() as u32;
-                if let Some(existing) =
+                if metadata.location.as_ref() == "rev" {
+                    revision = timestamp;
+                } else if let Some(existing) =
                     reference.and_then(|it| it.entries.get(metadata.location.as_ref()))
                 {
                     if existing.timestamp == timestamp {
@@ -163,7 +185,7 @@ pub async fn new_snapshot() -> Option<Snapshot> {
                 } else {
                     let store = store.clone();
                     pending.push(download_entry(metadata.location, timestamp, store, None));
-                };
+                }
             }
             Err(err) => {
                 warn!("{err:?}");
@@ -176,7 +198,7 @@ pub async fn new_snapshot() -> Option<Snapshot> {
             entries.insert(key, Entry { timestamp, data });
         }
     }
-    Some(Snapshot { entries, timestamp })
+    Some(Snapshot { entries, revision })
 }
 
 async fn download_entry(
@@ -238,14 +260,29 @@ impl Snapshot {
         match store.put(&path, payload).await {
             Ok(_) => {
                 if skip_update {
+                    let _ = store
+                        .put(&Path::from("rev"), PutPayload::new())
+                        .await
+                        .map_err(|err| {
+                            warn!("failed to update store revision {err:?}");
+                            err
+                        });
                     RATE_LIMITER.acquire_one().await;
                     Some(())
                 } else {
-                    let version = CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
-                    if version == 0 {
+                    let revision = CACHE_REVISION.load(Ordering::Acquire);
+                    let _ = store
+                        .put(&Path::from("rev"), PutPayload::new())
+                        .await
+                        .map_err(|err| {
+                            warn!("failed to update store revision {err:?}");
+                            err
+                        });
+                    RATE_LIMITER.acquire_one().await;
+                    if revision == 0 {
                         return Some(());
                     }
-                    trace!("cache version before update: {version}");
+                    trace!("cache version before update: {revision}");
                     let mut retries = 0_u8;
                     let mut delay = interval(Duration::from_millis(300_u64));
                     delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -255,10 +292,9 @@ impl Snapshot {
                             warn!("cache update delay too long");
                             return None;
                         }
-                        let current_version =
-                            CACHE_VERSION.load(std::sync::atomic::Ordering::Acquire);
-                        trace!("cache version: {current_version}");
-                        if current_version > version {
+                        let current_revision = CACHE_REVISION.load(Ordering::Acquire);
+                        trace!("cache version: {current_revision}");
+                        if current_revision > revision {
                             return Some(());
                         }
                         retries += 1;
@@ -389,11 +425,6 @@ async fn download(payload: GetResultPayload) -> Result<Vec<u8>, ()> {
         }
     }
     Ok(vec)
-}
-
-#[derive(Serialize, Deserialize)]
-struct Test {
-    message: String,
 }
 
 struct SingleUseNonce([u8; 12]);
