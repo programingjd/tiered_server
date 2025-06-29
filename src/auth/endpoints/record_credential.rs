@@ -1,5 +1,6 @@
 use crate::auth::passkey::challenge::{ChallengeMetadata, ClientData};
 use crate::auth::passkey::{PassKey, challenge};
+use crate::browser::browser_info;
 use crate::prefix::API_PATH_PREFIX;
 use crate::store::Snapshot;
 use crate::user::User;
@@ -10,6 +11,7 @@ use hyper::header::{CONTENT_TYPE, SET_COOKIE};
 use hyper::{Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tracing::info;
 
 pub(crate) async fn post(
@@ -23,6 +25,7 @@ pub(crate) async fn post(
         .and_then(|it| it.to_str().ok())
         .and_then(|it| parse_boundary(it).ok())
     {
+        let browser_info = browser_info(request.headers());
         let mut multipart = Multipart::with_constraints(
             request.into_body().into_data_stream(),
             boundary,
@@ -76,7 +79,11 @@ pub(crate) async fn post(
             }
         }
         if i.is_some() && challenge_verified {
-            if let Some(passkey) = PassKey::new(i.unwrap(), a, k) {
+            let timestamp = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as u32;
+            if let Some(passkey) = PassKey::new(i.unwrap(), timestamp, browser_info, a, k) {
                 if Snapshot::set_and_wait_for_update(
                     &format!("pk/{}/{}", user.id, passkey.id),
                     &passkey,

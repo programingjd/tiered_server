@@ -1,3 +1,4 @@
+use crate::browser::BrowserInfo;
 use crate::iter::{pair, single};
 use base64_simd::URL_SAFE_NO_PAD;
 use ring::signature;
@@ -18,6 +19,8 @@ pub(crate) mod credentials;
 #[serde(tag = "type")]
 pub(crate) struct PassKey {
     pub(crate) id: String,
+    pub(crate) timestamp: u32,
+    pub(crate) browser_info: BrowserInfo,
     subject_public_key_info: String,
 }
 
@@ -148,7 +151,13 @@ impl PassKey {
             }
         }
     }
-    pub(crate) fn new(id: String, alg: i16, subject_public_key_info: Vec<u8>) -> Option<Self> {
+    pub(crate) fn new(
+        id: String,
+        timestamp: u32,
+        browser_info: BrowserInfo,
+        alg: i16,
+        subject_public_key_info: Vec<u8>,
+    ) -> Option<Self> {
         match alg {
             -8 => debug!("ED25519"),
             -7 => debug!("ES256"),
@@ -160,6 +169,8 @@ impl PassKey {
         }
         Some(Self {
             id,
+            timestamp,
+            browser_info,
             subject_public_key_info: URL_SAFE_NO_PAD.encode_to_string(&subject_public_key_info),
         })
     }
@@ -168,6 +179,7 @@ impl PassKey {
 #[cfg(test)]
 mod tests_rsa {
     use super::PassKey;
+    use crate::browser::BrowserInfo;
     use rsa::RsaPrivateKey;
     use rsa::pkcs1v15::SigningKey;
     use rsa::pkcs8::EncodePublicKey;
@@ -197,8 +209,14 @@ mod tests_rsa {
                 let mut payload = vec![0u8; len];
                 rng.fill_bytes(&mut payload);
                 let signature = signing_key.sign(&payload).to_vec();
-                let passkey =
-                    PassKey::new(format!("{i}_{j}_{len}__rsa256"), -257, spki.clone()).unwrap();
+                let passkey = PassKey::new(
+                    format!("{i}_{j}_{len}__rsa256"),
+                    0,
+                    BrowserInfo::default(),
+                    -257,
+                    spki.clone(),
+                )
+                .unwrap();
                 assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
             }
         }
@@ -208,6 +226,7 @@ mod tests_rsa {
 #[cfg(test)]
 mod tests_ed25519 {
     use super::PassKey;
+    use crate::browser::BrowserInfo;
     use ed25519_dalek::ed25519::signature::rand_core::{OsRng, RngCore};
     use ed25519_dalek::pkcs8::EncodePublicKey;
     use ed25519_dalek::{Signer, SigningKey};
@@ -233,8 +252,14 @@ mod tests_ed25519 {
                 let mut payload = vec![0u8; len];
                 rng.fill_bytes(&mut payload);
                 let signature = signing_key.sign(&payload).to_vec();
-                let passkey =
-                    PassKey::new(format!("{i}_{j}_{len}__ed25519"), -8, spki.clone()).unwrap();
+                let passkey = PassKey::new(
+                    format!("{i}_{j}_{len}__ed25519"),
+                    0,
+                    BrowserInfo::default(),
+                    -8,
+                    spki.clone(),
+                )
+                .unwrap();
                 assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
             }
         }
@@ -244,6 +269,7 @@ mod tests_ed25519 {
 #[cfg(test)]
 mod tests_es256 {
     use super::PassKey;
+    use crate::browser::BrowserInfo;
     use p256::PublicKey;
     use p256::ecdsa::signature::Signer;
     use p256::ecdsa::{Signature, SigningKey};
@@ -276,8 +302,14 @@ mod tests_es256 {
                 let signature: Signature = signing_key.sign(&payload);
                 let signature = signature.to_der().as_bytes().to_vec();
                 let len = signature.len();
-                let passkey =
-                    PassKey::new(format!("{i}_{j}_{len}__ed25519"), -7, spki.clone()).unwrap();
+                let passkey = PassKey::new(
+                    format!("{i}_{j}_{len}__ed25519"),
+                    0,
+                    BrowserInfo::default(),
+                    -7,
+                    spki.clone(),
+                )
+                .unwrap();
                 assert!(passkey.verify(&signature, &payload[..index], &payload[index..]));
             }
         }
