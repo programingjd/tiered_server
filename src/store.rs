@@ -279,10 +279,7 @@ impl Snapshot {
                             err
                         });
                     RATE_LIMITER.acquire_one().await;
-                    if revision == 0 {
-                        return Some(());
-                    }
-                    trace!("cache version before update: {revision}");
+                    trace!("cache revision before update: {revision}");
                     let mut retries = 0_u8;
                     let mut delay = interval(Duration::from_millis(300_u64));
                     delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -293,7 +290,7 @@ impl Snapshot {
                             return None;
                         }
                         let current_revision = CACHE_REVISION.load(Ordering::Acquire);
-                        trace!("cache version: {current_revision}");
+                        trace!("cache revision: {current_revision}");
                         if current_revision > revision {
                             return Some(());
                         }
@@ -303,6 +300,7 @@ impl Snapshot {
             }
             Err(err) => {
                 warn!("{err:?}");
+                RATE_LIMITER.acquire_one().await;
                 None
             }
         }
@@ -322,6 +320,14 @@ impl Snapshot {
                 warn!("{err:?}");
             }
         }
+        let _ = store
+            .put(&Path::from("rev"), PutPayload::new())
+            .await
+            .map_err(|err| {
+                warn!("failed to update store revision {err:?}");
+                err
+            });
+        RATE_LIMITER.acquire_one().await;
         Some(())
     }
     pub async fn backup(&self) -> Option<Vec<u8>> {
