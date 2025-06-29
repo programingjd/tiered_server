@@ -197,7 +197,7 @@ struct UserResponse {
 pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let snapshot = snapshot();
     if let SessionState::Valid { user, session } =
-        SessionState::from_headers(request.headers(), &snapshot).await
+        SessionState::from_headers(request.headers(), &snapshot)
     {
         let mut response = Response::builder();
         response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);

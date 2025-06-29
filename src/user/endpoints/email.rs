@@ -16,7 +16,7 @@ pub(crate) async fn post(
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let snapshot = snapshot();
     if let SessionState::Valid { user, .. } =
-        SessionState::from_headers(request.headers(), &snapshot).await
+        SessionState::from_headers(request.headers(), &snapshot)
     {
         if let Some(value) = request.into_body().collect().await.ok().and_then(|it| {
             let bytes = it.to_bytes();

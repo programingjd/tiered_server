@@ -24,7 +24,7 @@ pub(crate) async fn handle_auth(
         .unwrap();
     let method = request.method();
     let snapshot = snapshot();
-    let session_state = SessionState::from_headers(request.headers(), &snapshot).await;
+    let session_state = SessionState::from_headers(request.headers(), &snapshot);
     let (user, session) = match session_state {
         SessionState::Valid { user, session } => (Some(user), Some(session)),
         SessionState::Expired { user } => (Some(user), None),

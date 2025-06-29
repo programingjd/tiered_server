@@ -309,6 +309,15 @@ The endpoints are under the api prefix.
 - `POST` `{api}/otp`<br>
   Requests a new email with a one-time login link.
 
+- `GET` `{api}/user`<br>
+  Gets the logged-in user info.
+
+- `GET` `{api}/user/passkeys`<br>
+  Gets the list of passkeys for the current logged-in user.
+
+- `DELETE` `{api}/user/passkeys/{id}`<br>
+  Invalidates the specified passkey of the current logged-in user.
+
 - `POST` `{api}/user`<br>
   Submits a new account request.
 

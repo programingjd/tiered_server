@@ -1,3 +1,3 @@
 mod endpoints;
 pub(crate) mod handler;
-mod passkey;
+pub(crate) mod passkey;

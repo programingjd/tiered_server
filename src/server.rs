@@ -198,7 +198,6 @@ pub async fn serve<Ext: Extension + Send + Sync>(extension: &'static Ext) {
                                                             request.headers(),
                                                             &snapshot,
                                                         )
-                                                        .await
                                                         {
                                                             SessionState::Valid { .. } => {}
                                                             _ => {

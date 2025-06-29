@@ -124,7 +124,7 @@ impl User {
 }
 
 impl SessionState {
-    pub async fn from_headers(
+    pub fn from_headers(
         headers: &HeaderMap<HeaderValue>,
         snapshot: &Arc<Snapshot>,
     ) -> SessionState {

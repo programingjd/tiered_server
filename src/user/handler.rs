@@ -1,5 +1,5 @@
 use crate::api::{Extension, handle_api_extension};
-use crate::headers::{GET, GET_POST, POST};
+use crate::headers::{DELETE, GET, GET_POST, POST};
 use crate::prefix::API_PATH_PREFIX;
 use crate::session::SessionState;
 use crate::store::snapshot;
@@ -38,6 +38,32 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
                 .body(Either::Right(Empty::new()))
                 .unwrap()
         }
+    } else if path == "/passkeys" {
+        if request.method() != Method::GET {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, GET);
+            info!("405 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+            response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap()
+        } else {
+            endpoints::passkeys::get(request).await
+        }
+    } else if path.starts_with("/passkeys/") {
+        if request.method() != Method::DELETE {
+            let mut response = Response::builder();
+            let headers = response.headers_mut().unwrap();
+            headers.insert(ALLOW, DELETE);
+            info!("405 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+            response
+                .status(StatusCode::METHOD_NOT_ALLOWED)
+                .body(Either::Right(Empty::new()))
+                .unwrap()
+        } else {
+            endpoints::passkeys::delete(request).await
+        }
     } else if path == "/email" {
         if request.method() != Method::POST {
             let mut response = Response::builder();
@@ -53,10 +79,7 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
         }
     } else if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot();
-        if SessionState::from_headers(request.headers(), &snapshot)
-            .await
-            .is_admin()
-        {
+        if SessionState::from_headers(request.headers(), &snapshot).is_admin() {
             if path == "/registrations/code" {
                 if request.method() != Method::GET {
                     let mut response = Response::builder();
