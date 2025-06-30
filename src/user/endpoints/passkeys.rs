@@ -18,6 +18,7 @@ struct PasskeyMetadata {
     id: String,
     platform: Platform,
     brand: Cow<'static, str>,
+    timestamp: u32,
 }
 
 impl From<PassKey> for PasskeyMetadata {
@@ -26,6 +27,7 @@ impl From<PassKey> for PasskeyMetadata {
             id: value.id,
             platform: value.browser_info.platform,
             brand: value.browser_info.brand,
+            timestamp: value.timestamp,
         }
     }
 }
