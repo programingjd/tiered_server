@@ -11,7 +11,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
-use tracing::{debug, trace};
+use tracing::debug;
 
 pub(crate) const SESSION_MAX_AGE: u32 = 14_400; // 4h
 
@@ -132,8 +132,13 @@ impl SessionState {
     ) -> SessionState {
         let cookie_value = headers.get_all(COOKIE).iter().find_map(|it| {
             it.to_str()
+                .inspect_err(|_| debug!("invalid cookie: {}", it.as_bytes().escape_ascii()))
                 .ok()
-                .and_then(|it| Cookie::parse(it).ok())
+                .and_then(|it| {
+                    Cookie::parse(it)
+                        .inspect_err(|_| debug!("invalid cookie value: {it}"))
+                        .ok()
+                })
                 .and_then(|it| {
                     it.iter().find_map(|it| {
                         debug!("cookie: {}={}", it.get_name(), it.get_value());
