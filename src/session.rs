@@ -11,7 +11,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use std::time::SystemTime;
-use tracing::debug;
+use tracing::{debug, trace};
 
 pub(crate) const SESSION_MAX_AGE: u32 = 14_400; // 4h
 
@@ -58,17 +58,19 @@ pub struct Session {
 
 impl Session {
     pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
+        let sid_cookie = format!(
+            "sid={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
+            self.id
+        );
+        debug!("cookie: {}", sid_cookie);
+        let st_cookie = format!(
+            "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
+            self.timestamp + SESSION_MAX_AGE
+        );
+        debug!("cookie: {}", st_cookie);
         [
-            HeaderValue::try_from(format!(
-                "sid={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
-                self.id
-            ))
-            .unwrap(),
-            HeaderValue::try_from(format!(
-                "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
-                self.timestamp + SESSION_MAX_AGE
-            ))
-            .unwrap(),
+            HeaderValue::try_from(sid_cookie).unwrap(),
+            HeaderValue::try_from(st_cookie).unwrap(),
         ]
     }
 }
