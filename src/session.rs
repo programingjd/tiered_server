@@ -57,15 +57,17 @@ pub struct Session {
 }
 
 impl Session {
-    pub(crate) fn cookies(&self) -> [HeaderValue; 2] {
+    pub(crate) fn cookies(&self, cross_site: bool) -> [HeaderValue; 2] {
         let sid_cookie = format!(
-            "sid={}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=34560000",
-            self.id
+            "sid={}; Path=/; Secure; HttpOnly; SameSite={}; Max-Age=34560000",
+            self.id,
+            if cross_site { "Lax" } else { "Strict" }
         );
         debug!("cookie: {}", sid_cookie);
         let st_cookie = format!(
-            "st={}; Path=/; Secure; SameSite=Strict; Max-Age=34560000",
-            self.timestamp + SESSION_MAX_AGE
+            "st={}; Path=/; Secure; SameSite={}; Max-Age=34560000",
+            self.timestamp + SESSION_MAX_AGE,
+            if cross_site { "Lax" } else { "Strict" }
         );
         debug!("cookie: {}", st_cookie);
         [

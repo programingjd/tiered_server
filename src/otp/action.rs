@@ -81,7 +81,7 @@ impl Action {
                 let session = User::create_session(&user.id, snapshot, None).await?;
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
-                session.cookies().into_iter().for_each(|cookie| {
+                session.cookies(true).into_iter().for_each(|cookie| {
                     headers.append(SET_COOKIE, cookie);
                 });
                 headers.insert(

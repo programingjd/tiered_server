@@ -100,7 +100,7 @@ pub(crate) async fn post(
                         );
                         let mut response = Response::builder().status(StatusCode::OK);
                         let headers = response.headers_mut().unwrap();
-                        session.cookies().into_iter().for_each(|cookie| {
+                        session.cookies(false).into_iter().for_each(|cookie| {
                             headers.append(SET_COOKIE, cookie);
                         });
                         return Some(response.body(Either::Right(Empty::new())).unwrap());
