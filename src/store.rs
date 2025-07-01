@@ -44,6 +44,7 @@ static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
 pub struct Snapshot {
     entries: HashMap<String, Entry>,
     revision: u32,
+    downloads: u32,
 }
 
 struct Entry {
@@ -82,10 +83,11 @@ fn update_store_cache_loop() {
                     }
                     if let Some(snapshot) = new_snapshot().await {
                         let revision = snapshot.revision;
+                        let downloads = snapshot.downloads;
                         let len = snapshot.entries.len();
                         SNAPSHOT.set(Arc::new(snapshot));
                         CACHE_REVISION.store(revision, Ordering::Release);
-                        debug!("snapshot updated (revision: {revision}, {len} entries)");
+                        debug!("snapshot updated (revision: {revision}, {len} entries, {downloads} downloads)");
                     } else {
                         warn!("snapshot update failed");
                     }
@@ -201,12 +203,17 @@ pub async fn new_snapshot() -> Option<Snapshot> {
             }
         }
     }
+    let downloads: u32 = pending.len() as u32;
     if !pending.is_empty() {
         for (key, timestamp, data) in try_join_all(pending).await.ok()? {
             entries.insert(key, Entry { timestamp, data });
         }
     }
-    Some(Snapshot { entries, revision })
+    Some(Snapshot {
+        entries,
+        revision,
+        downloads,
+    })
 }
 
 async fn download_entry(
