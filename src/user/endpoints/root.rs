@@ -188,7 +188,7 @@ struct UserResponse {
     email: Option<String>,
     sms: Option<String>,
     session_expiration_timestamp: u32,
-    session_from_passkey: bool,
+    session_passkey_id: Option<String>,
     admin: bool,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
@@ -218,7 +218,7 @@ pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Byte
                     email,
                     sms,
                     session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
-                    session_from_passkey: session.passkey_id.is_some(),
+                    session_passkey_id: session.passkey_id,
                     admin: user.admin,
                     metadata: user.metadata,
                 })
