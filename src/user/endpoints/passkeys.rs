@@ -19,27 +19,35 @@ struct PasskeyMetadata {
     platform: Platform,
     brand: Cow<'static, str>,
     timestamp: u32,
-}
-
-impl From<PassKey> for PasskeyMetadata {
-    fn from(value: PassKey) -> Self {
-        Self {
-            id: value.id,
-            platform: value.browser_info.platform,
-            brand: value.browser_info.brand,
-            timestamp: value.timestamp,
-        }
-    }
+    is_current_session_passkey: bool,
 }
 
 pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let snapshot = snapshot();
-    if let SessionState::Valid { user, .. } =
+    if let SessionState::Valid { user, session, .. } =
         SessionState::from_headers(request.headers(), &snapshot)
     {
         let keys = snapshot
             .list::<PassKey>(&format!("pk/{}/", user.id))
-            .map(|(_, v)| v.into())
+            .map(
+                |(
+                    _,
+                    PassKey {
+                        id,
+                        timestamp,
+                        browser_info,
+                        ..
+                    },
+                )| {
+                    PasskeyMetadata {
+                        is_current_session_passkey: session.passkey_id.as_ref() == Some(&id),
+                        id,
+                        timestamp,
+                        platform: browser_info.platform,
+                        brand: browser_info.brand,
+                    }
+                },
+            )
             .collect::<Vec<PasskeyMetadata>>();
         Response::builder()
             .status(StatusCode::OK)
