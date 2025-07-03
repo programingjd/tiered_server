@@ -285,32 +285,7 @@ impl Snapshot {
                     RATE_LIMITER.acquire_one().await;
                     Some(())
                 } else {
-                    let revision = CACHE_REVISION.load(Ordering::Acquire);
-                    let _ = store
-                        .put(&Path::from("rev"), PutPayload::new())
-                        .await
-                        .map_err(|err| {
-                            warn!("failed to update store revision {err:?}");
-                            err
-                        });
-                    RATE_LIMITER.acquire_one().await;
-                    trace!("cache revision before update: {revision}");
-                    let mut retries = 0_u8;
-                    let mut delay = interval(Duration::from_millis(300_u64));
-                    delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
-                    loop {
-                        delay.tick().await;
-                        if retries == 10 {
-                            warn!("cache update delay too long");
-                            return None;
-                        }
-                        let current_revision = CACHE_REVISION.load(Ordering::Acquire);
-                        trace!("cache revision: {current_revision}");
-                        if current_revision > revision {
-                            return Some(());
-                        }
-                        retries += 1;
-                    }
+                    Self::wait_for_new_revision(&store).await
                 }
             }
             Err(err) => {
@@ -320,7 +295,23 @@ impl Snapshot {
             }
         }
     }
-    pub async fn delete<T: AsRef<str>>(paths: impl Iterator<Item = T> + Send) -> Option<()> {
+
+    pub async fn delete_and_wait_for_update<T: AsRef<str>>(
+        paths: impl Iterator<Item = T> + Send,
+    ) -> Option<()> {
+        Self::delete(paths, false).await
+    }
+
+    pub async fn delete_and_return_before_update<T: AsRef<str>>(
+        paths: impl Iterator<Item = T> + Send,
+    ) -> Option<()> {
+        Self::delete(paths, true).await
+    }
+
+    pub async fn delete<T: AsRef<str>>(
+        paths: impl Iterator<Item = T> + Send,
+        skip_update: bool,
+    ) -> Option<()> {
         let store = store()?;
         let mut iter = store.delete_stream(
             stream::iter(paths.into_iter().map(|it| {
@@ -335,6 +326,23 @@ impl Snapshot {
                 warn!("{err:?}");
             }
         }
+        if skip_update {
+            let _ = store
+                .put(&Path::from("rev"), PutPayload::new())
+                .await
+                .map_err(|err| {
+                    warn!("failed to update store revision {err:?}");
+                    err
+                });
+            RATE_LIMITER.acquire_one().await;
+            Some(())
+        } else {
+            Self::wait_for_new_revision(&store).await
+        }
+    }
+
+    async fn wait_for_new_revision(store: &dyn ObjectStore) -> Option<()> {
+        let revision = CACHE_REVISION.load(Ordering::Acquire);
         let _ = store
             .put(&Path::from("rev"), PutPayload::new())
             .await
@@ -343,8 +351,25 @@ impl Snapshot {
                 err
             });
         RATE_LIMITER.acquire_one().await;
-        Some(())
+        trace!("cache revision before update: {revision}");
+        let mut retries = 0_u8;
+        let mut delay = interval(Duration::from_millis(300_u64));
+        delay.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        loop {
+            delay.tick().await;
+            if retries == 10 {
+                warn!("cache update delay too long");
+                return None;
+            }
+            let current_revision = CACHE_REVISION.load(Ordering::Acquire);
+            trace!("cache revision: {current_revision}");
+            if current_revision > revision {
+                return Some(());
+            }
+            retries += 1;
+        }
     }
+
     pub async fn backup(&self) -> Option<Vec<u8>> {
         let mut bytes = Vec::new();
         {
@@ -391,7 +416,7 @@ impl Snapshot {
             entry.read_to_end(&mut data).ok()?;
             store.put(&path, PutPayload::from(data)).await.ok()?;
         }
-        Self::delete(keys.into_iter()).await
+        Self::delete_and_return_before_update(keys.into_iter()).await
     }
 }
 

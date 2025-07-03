@@ -148,7 +148,7 @@ pub(crate) async fn get<Ext: Extension + Send + Sync>(
                     let key = format!("otp/{token}");
                     let otp = snapshot.get::<Otp>(key.as_str());
                     if let Some(otp) = otp {
-                        let _ = Snapshot::delete([key.as_str()].iter()).await;
+                        let _ = Snapshot::delete_and_wait_for_update([key.as_str()].iter()).await;
                         if otp.timestamp != 0 {
                             let now = SystemTime::now()
                                 .duration_since(SystemTime::UNIX_EPOCH)

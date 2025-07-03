@@ -89,7 +89,7 @@ pub(crate) async fn delete(
                 .status(StatusCode::BAD_REQUEST)
                 .body(Either::Right(Empty::new()))
                 .unwrap()
-        } else if Snapshot::delete([format!("pk/{}/{id}", user.id)].iter())
+        } else if Snapshot::delete_and_wait_for_update([format!("pk/{}/{id}", user.id)].iter())
             .await
             .is_some()
         {

@@ -113,7 +113,7 @@ impl User {
                 }
             })
             .collect::<Vec<_>>();
-        Snapshot::delete(session_keys.iter()).await;
+        Snapshot::delete_and_return_before_update(session_keys.iter()).await;
         debug!("new session for user {user_id} @{timestamp}");
         let session = Session {
             id: session_id,

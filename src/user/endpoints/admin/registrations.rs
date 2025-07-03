@@ -55,12 +55,14 @@ pub(crate) async fn post(
             let user = snapshot.get::<User>(user_id.as_str());
             if let Some(mut user) = user {
                 user.metadata = None;
-                if Snapshot::set_and_wait_for_update(format!("acc/{user_id}").as_str(), &user)
+                if Snapshot::set_and_return_before_update(format!("acc/{user_id}").as_str(), &user)
                     .await
                     .is_some()
-                    && Snapshot::delete([format!("reg/{user_id}").as_str()].iter())
-                        .await
-                        .is_some()
+                    && Snapshot::delete_and_wait_for_update(
+                        [format!("reg/{user_id}").as_str()].iter(),
+                    )
+                    .await
+                    .is_some()
                     && (skip_notification
                         || Otp::send(&user, Action::FirstLogin, None, snapshot, server_name)
                             .await

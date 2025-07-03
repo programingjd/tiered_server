@@ -205,6 +205,6 @@ impl Otp {
                 }
             })
             .collect::<Vec<_>>();
-        Snapshot::delete(paths.iter()).await
+        Snapshot::delete_and_return_before_update(paths.iter()).await
     }
 }

@@ -11,7 +11,7 @@ pub(crate) async fn get(
     session: Option<Session>,
 ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
     if let Some(session) = session {
-        Snapshot::delete([format!("sid/{}", session.id)].iter()).await;
+        Snapshot::delete_and_wait_for_update([format!("sid/{}", session.id)].iter()).await;
     }
     info!(
         "200 {}/auth/forget_user",
