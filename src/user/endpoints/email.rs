@@ -36,7 +36,7 @@ pub(crate) async fn post(
                 .find(|&it| match it {
                     IdentificationMethod::Email(Email {
                         normalized_address, ..
-                    }) => &old_email == normalized_address,
+                    }) => old_email == normalized_address,
                     _ => false,
                 })
                 .ok_or_else(dummy_error)?;
@@ -79,7 +79,7 @@ pub(crate) async fn post(
                 }
             }
             Err(err) => {
-                if let Some(limited_error) = err.downcast_ref::<serde_json::Error>() {
+                if err.downcast_ref::<serde_json::Error>().is_some() {
                     info!("413 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
                     Response::builder()
                         .status(StatusCode::PAYLOAD_TOO_LARGE)

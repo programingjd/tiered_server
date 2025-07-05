@@ -29,7 +29,7 @@ pub(crate) async fn post(
         let mut multipart = Multipart::with_constraints(
             request.into_body().into_data_stream(),
             boundary,
-            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            Constraints::new().size_limit(SizeLimit::new().whole_stream(4_096)),
         );
         let mut i = None;
         let mut a = 0_i16;
@@ -92,7 +92,7 @@ pub(crate) async fn post(
                 .is_some()
                 {
                     if let Some(session) =
-                        User::create_session(user.id, snapshot, Some(passkey.id)).await
+                        User::create_session(user.id, snapshot, Some(passkey.id), false).await
                     {
                         info!(
                             "200 {}/auth/record_credential",

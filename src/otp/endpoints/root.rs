@@ -37,7 +37,7 @@ pub(crate) async fn post(
         let mut multipart = Multipart::with_constraints(
             request.into_body().into_data_stream(),
             boundary,
-            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            Constraints::new().size_limit(SizeLimit::new().whole_stream(4_096)),
         );
         let mut email = None;
         let mut last_name = None;
@@ -199,7 +199,7 @@ pub(crate) async fn get<Ext: Extension + Send + Sync>(
                                 .is_some()
                             {
                                 if let Some(response) =
-                                    otp.event.execute(user, otp.data, &snapshot).await
+                                    otp.event.handle(user, otp.data, &snapshot).await
                                 {
                                     info!(
                                         "{} {}/otp/{payload}",

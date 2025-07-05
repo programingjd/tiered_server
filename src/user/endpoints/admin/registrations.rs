@@ -30,7 +30,7 @@ pub(crate) async fn post(
         let mut multipart = Multipart::with_constraints(
             request.into_body().into_data_stream(),
             boundary,
-            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            Constraints::new().size_limit(SizeLimit::new().whole_stream(4_096)),
         );
         let mut user_id = None;
         let mut skip_notification = false;

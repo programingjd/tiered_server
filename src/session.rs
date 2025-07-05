@@ -54,6 +54,7 @@ pub struct Session {
     pub user_id: String,
     pub passkey_id: Option<String>,
     pub timestamp: u32,
+    pub delegated: bool,
 }
 
 impl Session {
@@ -82,6 +83,7 @@ impl User {
         user_id: impl Into<String>,
         snapshot: &Arc<Snapshot>,
         passkey_id: Option<String>,
+        delegated: bool,
     ) -> Option<Session> {
         let user_id = user_id.into();
         let timestamp = SystemTime::now()
@@ -120,6 +122,7 @@ impl User {
             user_id,
             passkey_id,
             timestamp,
+            delegated,
         };
         let key = format!("sid/{}", session.id);
         Snapshot::set_and_wait_for_update(key.as_str(), &session).await?;

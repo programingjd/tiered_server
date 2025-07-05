@@ -71,7 +71,7 @@ pub(crate) async fn handle_auth(
             API_PATH_PREFIX.without_trailing_slash
         );
     } else if path == "/credential_creation_options" {
-        if session.is_none() {
+        if session.map(|it| it.delegated).unwrap_or(true) {
             return Response::builder()
                 .status(StatusCode::FORBIDDEN)
                 .body(Either::Right(Empty::new()))
@@ -101,7 +101,7 @@ pub(crate) async fn handle_auth(
             API_PATH_PREFIX.without_trailing_slash
         );
     } else if path == "/record_credential" {
-        if session.is_none() {
+        if session.map(|it| it.delegated).unwrap_or(true) {
             return Response::builder()
                 .status(StatusCode::FORBIDDEN)
                 .body(Either::Right(Empty::new()))
@@ -149,29 +149,6 @@ pub(crate) async fn handle_auth(
         }
         info!(
             "403 {}/auth/validate_credential",
-            API_PATH_PREFIX.without_trailing_slash
-        );
-    } else if path == "/forget_user" {
-        if request.method() != Method::GET {
-            let mut response = Response::builder();
-            let headers = response.headers_mut().unwrap();
-            headers.insert(ALLOW, GET);
-            info!(
-                "405 {}/auth/forget_user",
-                API_PATH_PREFIX.without_trailing_slash
-            );
-            return response
-                .status(StatusCode::METHOD_NOT_ALLOWED)
-                .body(Either::Right(Empty::new()))
-                .unwrap();
-        }
-        if user.is_some() {
-            if let Some(response) = endpoints::forget_user::get(session).await {
-                return response;
-            }
-        }
-        info!(
-            "403 {}/auth/forget_user",
             API_PATH_PREFIX.without_trailing_slash
         );
     } else if path == "/disconnect_user" {

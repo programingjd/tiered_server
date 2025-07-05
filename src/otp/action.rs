@@ -72,7 +72,7 @@ impl Event {
             ),
         }
     }
-    pub(crate) async fn execute(
+    pub(crate) async fn handle(
         self,
         mut user: User,
         value: Option<Value>,
@@ -80,7 +80,7 @@ impl Event {
     ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
         match self {
             Event::FirstLogin | Event::Login => {
-                let session = User::create_session(&user.id, snapshot, None).await?;
+                let session = User::create_session(&user.id, snapshot, None, false).await?;
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 session.cookies(true).into_iter().for_each(|cookie| {
@@ -115,6 +115,9 @@ impl Event {
                             break;
                         }
                     }
+                }
+                if !found {
+                    return None;
                 }
                 Snapshot::set_and_wait_for_update(&format!("acc/{}", user.id), &user).await?;
                 let mut response = Response::builder();

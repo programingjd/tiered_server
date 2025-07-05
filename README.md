@@ -296,9 +296,6 @@ The endpoints are under the api prefix.
 - `POST` `{api}/auth/validate_credential`<br>
   Checks the passkey and creates a user session if valid.
 
-- `GET` `{api}/auth/forget_user`<br>
-  Deletes the session and the associated cookies.
-
 - `GET` `{api}/auth/disconnect_user`<br>
   Invalidates the session and update the `st` cookie.
 

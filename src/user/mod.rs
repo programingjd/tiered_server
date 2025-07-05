@@ -9,7 +9,6 @@ use crate::otp::action::Event;
 use crate::server::DOMAIN_APEX;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
-use futures::StreamExt;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

@@ -27,7 +27,7 @@ pub(crate) async fn post(
         let mut multipart = Multipart::with_constraints(
             request.into_body().into_data_stream(),
             boundary,
-            Constraints::new().size_limit(SizeLimit::new().whole_stream(4096)),
+            Constraints::new().size_limit(SizeLimit::new().whole_stream(4_096)),
         );
         let mut i = None;
         let mut s = vec![];
@@ -99,7 +99,7 @@ pub(crate) async fn post(
                 .is_some()
             {
                 if let Some(session) =
-                    User::create_session(user_id, snapshot, Some(passkey_id)).await
+                    User::create_session(user_id, snapshot, Some(passkey_id), false).await
                 {
                     info!(
                         "200 {}/auth/validate_credential",
