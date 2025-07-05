@@ -9,6 +9,7 @@ pub mod handler;
 pub mod headers;
 mod hex;
 mod iter;
+pub mod moderation;
 pub mod norm;
 pub mod otp;
 pub mod prefix;

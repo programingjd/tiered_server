@@ -5,10 +5,11 @@ use crate::norm::{
     normalize_phone_number,
 };
 use crate::otp::Otp;
-use crate::otp::action::Action;
+use crate::otp::action::Event;
 use crate::server::DOMAIN_APEX;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
+use futures::StreamExt;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -59,7 +60,7 @@ pub enum IdentificationMethod {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
-    pub identification: IdentificationMethod,
+    pub identification: Vec<IdentificationMethod>,
     pub last_name: String,
     pub last_name_norm: String,
     pub first_name: String,
@@ -96,10 +97,10 @@ impl User {
             .unwrap()
             .as_secs() as u32;
         let id = Self::new_id(timestamp);
-        let identification = IdentificationMethod::Email(Email {
+        let identification = vec![IdentificationMethod::Email(Email {
             normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
             address: email,
-        });
+        })];
         let key = format!("{}/{id}", if needs_validation { "reg" } else { "acc" });
         if snapshot.get::<User>(key.as_str()).is_some() {
             return None;
@@ -125,23 +126,45 @@ impl User {
         };
         Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            Otp::send(&user, Action::FirstLogin, None, snapshot, server_name).await?;
+            Otp::send(&user, Event::FirstLogin, None, snapshot, server_name).await?;
         }
         Some(user)
     }
     pub fn email(&self) -> Option<&str> {
-        if let IdentificationMethod::Email(ref email) = self.identification {
-            Some(email.normalized_address.as_str())
-        } else {
-            None
-        }
+        self.identification.iter().find_map(|it| {
+            if let IdentificationMethod::Email(email) = it {
+                Some(email.normalized_address.as_str())
+            } else {
+                None
+            }
+        })
     }
-    pub fn sms(&self) -> Option<&str> {
-        if let IdentificationMethod::Sms(ref number) = self.identification {
-            Some(number.normalized_number.as_str())
-        } else {
-            None
-        }
+    pub fn emails(&self) -> impl Iterator<Item = &str> {
+        self.identification.iter().filter_map(|it| {
+            if let IdentificationMethod::Email(email) = it {
+                Some(email.normalized_address.as_str())
+            } else {
+                None
+            }
+        })
+    }
+    pub fn sms_number(&self) -> Option<&str> {
+        self.identification.iter().find_map(|it| {
+            if let IdentificationMethod::Sms(number) = it {
+                Some(number.normalized_number.as_str())
+            } else {
+                None
+            }
+        })
+    }
+    pub fn sms_numbers(&self) -> impl Iterator<Item = &str> {
+        self.identification.iter().filter_map(|it| {
+            if let IdentificationMethod::Sms(number) = it {
+                Some(number.normalized_number.as_str())
+            } else {
+                None
+            }
+        })
     }
     pub fn new_id(timestamp: u32) -> String {
         let mut random = [0u8; 36];
@@ -169,10 +192,13 @@ pub(crate) async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option
             .iter()
             .map(|it| format!(
                 "    {} {} {}",
-                match it.identification {
-                    IdentificationMethod::Email(ref email) => email.address.as_str(),
-                    _ => "?",
-                },
+                it.identification
+                    .iter()
+                    .find_map(|it| match it {
+                        IdentificationMethod::Email(email) => Some(email.address.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("?"),
                 it.last_name.as_str(),
                 it.first_name.as_str()
             ))
@@ -189,18 +215,17 @@ pub(crate) async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option
         let last_name_norm = normalize_last_name(last_name);
         let first_name_norm = normalize_first_name(first_name);
         if !users.iter().any(|user| {
-            if let IdentificationMethod::Email(Email {
-                ref normalized_address,
-                ..
-            }) = user.identification
-            {
-                normalized_address == &email_norm
-                    && user.last_name_norm == last_name_norm
-                    && user.first_name_norm == first_name_norm
-                    && user.date_of_birth == date_of_birth
-            } else {
-                false
-            }
+            user.identification.iter().any(|it| match it {
+                IdentificationMethod::Email(Email {
+                    normalized_address, ..
+                }) => {
+                    normalized_address == &email_norm
+                        && user.last_name_norm == last_name_norm
+                        && user.first_name_norm == first_name_norm
+                        && user.date_of_birth == date_of_birth
+                }
+                _ => false,
+            })
         }) {
             info!("new admin account: {email} {last_name} {first_name}");
             let server_name = DOMAIN_APEX.to_string();

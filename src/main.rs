@@ -3,8 +3,7 @@ use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
 use serde_json::Value;
 use std::sync::Arc;
-use tiered_server::api::Extension;
-use tiered_server::otp::action::Action;
+use tiered_server::api::{Action, Extension};
 use tiered_server::server::serve;
 use tiered_server::user::User;
 

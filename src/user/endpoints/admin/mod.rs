@@ -18,8 +18,8 @@ struct UserResponse {
     first_name: String,
     last_name: String,
     date_of_birth: u32,
-    email: Option<String>,
-    sms: Option<String>,
+    emails: Vec<String>,
+    sms_numbers: Vec<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     metadata: Option<Value>,
 }
@@ -46,17 +46,21 @@ pub(crate) async fn list(
     let list = snapshot
         .list::<User>(user_or_registration.as_key())
         .map(|(_, user)| {
-            let (email, sms) = match user.identification {
-                IdentificationMethod::Email(email) => (Some(email.normalized_address), None),
-                IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
-                _ => (None, None),
-            };
+            let mut emails = Vec::with_capacity(1);
+            let mut sms_numbers = Vec::with_capacity(0);
+            for it in user.identification.into_iter() {
+                match it {
+                    IdentificationMethod::Email(email) => emails.push(email.normalized_address),
+                    IdentificationMethod::Sms(sms) => sms_numbers.push(sms.normalized_number),
+                    _ => {}
+                };
+            }
             UserResponse {
                 first_name: user.first_name,
                 last_name: user.last_name,
                 date_of_birth: user.date_of_birth,
-                email,
-                sms,
+                emails,
+                sms_numbers,
                 metadata: user.metadata,
             }
         })

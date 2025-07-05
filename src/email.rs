@@ -6,7 +6,7 @@ use crate::env::secret_value;
 use crate::server::DOMAIN_TITLE;
 use reqwest::Client;
 use reqwest::multipart::Form;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use tracing::warn;
 
@@ -16,6 +16,14 @@ pub(crate) struct Email<'a> {
     to: &'a str,
     subject: &'static str,
     html: &'a str,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EmailUpdate<'a> {
+    #[serde(borrow)]
+    pub old_email: &'a str,
+    #[serde(borrow)]
+    pub new_email: &'a str,
 }
 
 //noinspection SpellCheckingInspection

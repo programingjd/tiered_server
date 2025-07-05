@@ -1,7 +1,7 @@
 use crate::headers::JSON;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::otp::Otp;
-use crate::otp::action::Action;
+use crate::otp::action::Event;
 use crate::prefix::API_PATH_PREFIX;
 use crate::session::{SESSION_MAX_AGE, SessionState};
 use crate::store::snapshot;
@@ -114,16 +114,16 @@ pub(crate) async fn post(
             };
             let snapshot = snapshot();
             let user = snapshot.list::<User>("acc/").find_map(|(_, user)| {
-                if let IdentificationMethod::Email(ref email) = user.identification {
-                    if email_norm == email.normalized_address
-                        && user.date_of_birth == dob
-                        && user.last_name_norm == last_name_norm
-                        && user.first_name_norm == first_name_norm
-                    {
-                        Some(user)
-                    } else {
-                        None
+                if user.identification.iter().any(|it| match it {
+                    IdentificationMethod::Email(email) => {
+                        email_norm == email.normalized_address
+                            && user.date_of_birth == dob
+                            && user.last_name_norm == last_name_norm
+                            && user.first_name_norm == first_name_norm
                     }
+                    _ => false,
+                }) {
+                    Some(user)
                 } else {
                     None
                 }
@@ -132,7 +132,7 @@ pub(crate) async fn post(
                 let server_name = server_name.clone();
                 #[allow(clippy::let_underscore_future)]
                 let _ = spawn(async move {
-                    Otp::send(&user, Action::Login, None, &snapshot, &server_name).await
+                    Otp::send(&user, Event::Login, None, &snapshot, &server_name).await
                 });
             } else {
                 let email_trim = email.trim();
@@ -185,8 +185,8 @@ struct UserResponse {
     first_name: String,
     last_name: String,
     date_of_birth: u32,
-    email: Option<String>,
-    sms: Option<String>,
+    emails: Vec<String>,
+    sms_numbers: Vec<String>,
     session_expiration_timestamp: u32,
     session_passkey_id: Option<String>,
     admin: bool,
@@ -201,11 +201,15 @@ pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Byte
     {
         let mut response = Response::builder();
         response.headers_mut().unwrap().insert(CONTENT_TYPE, JSON);
-        let (email, sms) = match user.identification {
-            IdentificationMethod::Email(email) => (Some(email.normalized_address), None),
-            IdentificationMethod::Sms(sms) => (None, Some(sms.normalized_number)),
-            _ => (None, None),
-        };
+        let mut emails = Vec::with_capacity(1);
+        let mut sms_numbers = Vec::with_capacity(0);
+        for it in user.identification.into_iter() {
+            match it {
+                IdentificationMethod::Email(email) => emails.push(email.normalized_address),
+                IdentificationMethod::Sms(sms) => sms_numbers.push(sms.normalized_number),
+                _ => {}
+            };
+        }
         info!("200 {}/api/user", API_PATH_PREFIX.without_trailing_slash);
         Response::builder()
             .status(StatusCode::OK)
@@ -215,8 +219,8 @@ pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Byte
                     first_name: user.first_name,
                     last_name: user.last_name,
                     date_of_birth: user.date_of_birth,
-                    email,
-                    sms,
+                    emails,
+                    sms_numbers,
                     session_expiration_timestamp: session.timestamp + SESSION_MAX_AGE,
                     session_passkey_id: session.passkey_id,
                     admin: user.admin,

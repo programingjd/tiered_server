@@ -1,11 +1,13 @@
+use crate::email::EmailUpdate;
 use crate::env::ConfigurationKey::{
     EmailAccountCreatedTemplate, EmailAccountCreatedTitle, EmailOneTimeLoginTemplate,
     EmailOneTimeLoginTitle, EmailVerifyEmailTemplate, EmailVerifyEmailTitle,
 };
 use crate::env::secret_value;
+use crate::norm::normalize_email;
 use crate::prefix::USER_PATH_PREFIX;
 use crate::store::Snapshot;
-use crate::user::{IdentificationMethod, User};
+use crate::user::{Email, IdentificationMethod, User};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::Bytes;
 use hyper::header::{HeaderValue, LOCATION, SET_COOKIE};
@@ -36,7 +38,7 @@ static EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE: LazyLock<Option<&'static str>> =
     LazyLock::new(|| secret_value(EmailVerifyEmailTemplate));
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
-pub enum Action {
+pub enum Event {
     #[serde(rename = "first_login")]
     FirstLogin,
     #[serde(rename = "login")]
@@ -45,26 +47,26 @@ pub enum Action {
     EmailUpdate,
 }
 
-impl Action {
+impl Event {
     pub(crate) fn otp_validity_duration(&self) -> Option<u32> {
         match self {
-            Action::FirstLogin => None,
-            Action::Login => {
+            Event::FirstLogin => None,
+            Event::Login => {
                 Some(1_200) // 20 mins
             }
-            Action::EmailUpdate => {
+            Event::EmailUpdate => {
                 Some(1_200) // 20 mins
             }
         }
     }
     pub(crate) fn email_template(&self) -> (Option<&'static str>, Option<&'static str>) {
         match self {
-            Action::FirstLogin => (
+            Event::FirstLogin => (
                 *EMAIL_ACCOUNT_CREATED_TITLE,
                 *EMAIL_ACCOUNT_CREATED_TEMPLATE,
             ),
-            Action::Login => (*EMAIL_ONE_TIME_LOGIN_TITLE, *EMAIL_ONE_TIME_LOGIN_TEMPLATE),
-            Action::EmailUpdate => (
+            Event::Login => (*EMAIL_ONE_TIME_LOGIN_TITLE, *EMAIL_ONE_TIME_LOGIN_TEMPLATE),
+            Event::EmailUpdate => (
                 *EMAIL_ACCOUNT_VERIFY_EMAIL_TITLE,
                 *EMAIL_ACCOUNT_VERIFIY_EMAIL_TEMPLATE,
             ),
@@ -77,7 +79,7 @@ impl Action {
         snapshot: &Arc<Snapshot>,
     ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
         match self {
-            Action::FirstLogin | Action::Login => {
+            Event::FirstLogin | Event::Login => {
                 let session = User::create_session(&user.id, snapshot, None).await?;
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
@@ -95,9 +97,25 @@ impl Action {
                         .unwrap(),
                 )
             }
-            Action::EmailUpdate => {
-                let email = value.and_then(|it| serde_json::from_value::<String>(it).ok())?;
-                user.identification = IdentificationMethod::Email(email.into());
+            Event::EmailUpdate => {
+                let email_update = value
+                    .as_ref()
+                    .and_then(|it| EmailUpdate::deserialize(it).ok())?;
+                let mut found = false;
+                for it in user.identification.iter_mut() {
+                    if let IdentificationMethod::Email(Email {
+                        normalized_address,
+                        address,
+                    }) = it
+                    {
+                        if email_update.old_email == normalized_address {
+                            *normalized_address = normalize_email(email_update.new_email);
+                            *address = email_update.new_email.to_string();
+                            found = true;
+                            break;
+                        }
+                    }
+                }
                 Snapshot::set_and_wait_for_update(&format!("acc/{}", user.id), &user).await?;
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();

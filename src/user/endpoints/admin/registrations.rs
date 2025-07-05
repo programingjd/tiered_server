@@ -1,5 +1,5 @@
 use crate::otp::Otp;
-use crate::otp::action::Action;
+use crate::otp::action::Event;
 use crate::prefix::API_PATH_PREFIX;
 use crate::store::Snapshot;
 use crate::user::User;
@@ -64,7 +64,7 @@ pub(crate) async fn post(
                     .await
                     .is_some()
                     && (skip_notification
-                        || Otp::send(&user, Action::FirstLogin, None, snapshot, server_name)
+                        || Otp::send(&user, Event::FirstLogin, None, snapshot, server_name)
                             .await
                             .is_some())
                 {

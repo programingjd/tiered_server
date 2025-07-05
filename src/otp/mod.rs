@@ -1,6 +1,6 @@
 use crate::email::Email;
 use crate::handler::static_handler;
-use crate::otp::action::Action;
+use crate::otp::action::Event;
 use crate::otp::signature::token_signature;
 use crate::prefix::API_PATH_PREFIX;
 use crate::store::Snapshot;
@@ -35,22 +35,34 @@ pub(crate) struct Otp {
     id: String,
     user_id: String,
     timestamp: u32,
-    action: Action,
+    event: Event,
     data: Option<Value>,
 }
 
 impl Otp {
-    pub(crate) async fn send(
+    pub(crate) async fn send_with_email(
         user: &User,
-        action: Action,
+        email: &str,
+        action: Event,
         value: Option<Value>,
         snapshot: &Arc<Snapshot>,
         server_name: &Arc<String>,
     ) -> Option<()> {
-        let email = match &user.identification {
-            IdentificationMethod::Email(email) => email.address.as_str(),
-            _ => return None,
-        };
+        let otp = Self::create(user, action, value, snapshot).await?;
+        Self::send_otp(user, email, otp, server_name).await
+    }
+
+    pub(crate) async fn send(
+        user: &User,
+        action: Event,
+        value: Option<Value>,
+        snapshot: &Arc<Snapshot>,
+        server_name: &Arc<String>,
+    ) -> Option<()> {
+        let email = user.identification.iter().find_map(|it| match it {
+            IdentificationMethod::Email(email) => Some(email.address.as_str()),
+            _ => None,
+        })?;
         let otp = Self::create(user, action, value, snapshot).await?;
         Self::send_otp(user, email, otp, server_name).await
     }
@@ -67,7 +79,7 @@ impl Otp {
             "https://{server_name}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
-        let (subject, template_name) = otp.action.email_template();
+        let (subject, template_name) = otp.event.email_template();
         let subject = subject?;
         let template_name = template_name?;
         let content = match static_handler()
@@ -139,7 +151,7 @@ impl Otp {
 
     async fn create(
         user: &User,
-        action: Action,
+        action: Event,
         data: Option<Value>,
         snapshot: &Arc<Snapshot>,
     ) -> Option<Self> {
@@ -163,7 +175,7 @@ impl Otp {
                 .otp_validity_duration()
                 .map(|it| timestamp + it)
                 .unwrap_or(0),
-            action,
+            event: action,
             data,
         };
         let _ = Self::remove_expired(timestamp, snapshot, Some(user.id.as_str())).await;
