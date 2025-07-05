@@ -80,7 +80,7 @@ impl Event {
     ) -> Option<Response<Either<Full<Bytes>, Empty<Bytes>>>> {
         match self {
             Event::FirstLogin | Event::Login => {
-                let session = User::create_session(&user.id, snapshot, None, false).await?;
+                let session = User::create_session(&user, snapshot, None, false).await?;
                 let mut response = Response::builder();
                 let headers = response.headers_mut().unwrap();
                 session.cookies(true).into_iter().for_each(|cookie| {

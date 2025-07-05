@@ -1,8 +1,8 @@
 use crate::auth::passkey::challenge::{ChallengeMetadata, ClientData};
 use crate::auth::passkey::{PassKey, challenge};
 use crate::prefix::API_PATH_PREFIX;
+use crate::session::Session;
 use crate::store::Snapshot;
-use crate::user::User;
 use base64_simd::URL_SAFE_NO_PAD;
 use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
@@ -99,7 +99,7 @@ pub(crate) async fn post(
                 .is_some()
             {
                 if let Some(session) =
-                    User::create_session(user_id, snapshot, Some(passkey_id), false).await
+                    Session::create(user_id, snapshot, Some(passkey_id), false).await
                 {
                     info!(
                         "200 {}/auth/validate_credential",

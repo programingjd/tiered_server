@@ -79,7 +79,11 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
         }
     } else if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot();
-        if SessionState::from_headers(request.headers(), &snapshot).is_admin() {
+        let admin_session = match SessionState::from_headers(request.headers(), &snapshot) {
+            SessionState::Valid { user, session } if user.admin => Some(session),
+            _ => None,
+        };
+        if let Some(session) = admin_session {
             if path == "/registrations/code" {
                 if request.method() != Method::GET {
                     let mut response = Response::builder();
@@ -123,6 +127,22 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
                     headers.insert(ALLOW, GET_POST);
                     info!(
                         "405 {}/user/admin/registrations",
+                        API_PATH_PREFIX.without_trailing_slash
+                    );
+                    response
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap()
+                }
+            } else if path == "/login_as" {
+                if request.method() == Method::POST {
+                    endpoints::admin::login_as::post(request, session, &snapshot).await
+                } else {
+                    let mut response = Response::builder();
+                    let headers = response.headers_mut().unwrap();
+                    headers.insert(ALLOW, POST);
+                    info!(
+                        "405 {}/user/admin/login_as",
                         API_PATH_PREFIX.without_trailing_slash
                     );
                     response

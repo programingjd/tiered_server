@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
+pub(crate) mod login_as;
 pub(crate) mod registration_code;
 pub(crate) mod registrations;
 pub(crate) mod users;

@@ -321,6 +321,9 @@ The endpoints are under the api prefix.
 - `POST` `{api}/user/email`<br>
   Submits an account email update request.
 
+- `POST` `{api}/user/admin/login_as`<br>
+  Replace admin session with delegated user session.
+
 - `GET` `{api}/user/admin/users`<br>
   Lists all registered users.
 

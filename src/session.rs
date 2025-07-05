@@ -39,15 +39,6 @@ pub enum SessionState {
     },
 }
 
-impl SessionState {
-    pub fn is_admin(&self) -> bool {
-        match self {
-            SessionState::Valid { user, .. } => user.admin,
-            _ => false,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct Session {
     pub(crate) id: String,
@@ -76,15 +67,12 @@ impl Session {
             HeaderValue::try_from(st_cookie).unwrap(),
         ]
     }
-}
-
-impl User {
-    pub async fn create_session(
+    pub async fn create(
         user_id: impl Into<String>,
         snapshot: &Arc<Snapshot>,
         passkey_id: Option<String>,
         delegated: bool,
-    ) -> Option<Session> {
+    ) -> Option<Self> {
         let user_id = user_id.into();
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -117,7 +105,7 @@ impl User {
             .collect::<Vec<_>>();
         Snapshot::delete_and_return_before_update(session_keys.iter()).await;
         debug!("new session for user {user_id} @{timestamp}");
-        let session = Session {
+        let session = Self {
             id: session_id,
             user_id,
             passkey_id,
@@ -127,6 +115,17 @@ impl User {
         let key = format!("sid/{}", session.id);
         Snapshot::set_and_wait_for_update(key.as_str(), &session).await?;
         Some(session)
+    }
+}
+
+impl User {
+    pub async fn create_session(
+        &self,
+        snapshot: &Arc<Snapshot>,
+        passkey_id: Option<String>,
+        delegated: bool,
+    ) -> Option<Session> {
+        Session::create(self.id.clone(), snapshot, passkey_id, delegated).await
     }
 }
 
