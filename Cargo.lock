@@ -225,9 +225,9 @@ checksum = "2e93abca9e28e0a1b9877922aacb20576e05d4679ffa78c3d6dc22a26a216659"
 
 [[package]]
 name = "cc"
-version = "1.2.27"
+version = "1.2.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d487aa071b5f64da6f19a3e848e3578944b726ee5a4854b82172f02aa876bfdc"
+checksum = "5c1599538de2394445747c8cf7935946e3cc27e9625f889d979bfb2aaf569362"
 dependencies = [
  "shlex",
 ]
@@ -554,9 +554,9 @@ dependencies = [
 
 [[package]]
 name = "firewall"
-version = "0.3.11"
+version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b0259ace06764442f907af55b1aa71e69bd3a6056708aff57b3742e88415ff"
+checksum = "a930f71abaa27496b61109b7b62c097ce47832991b72a919639d393af710f22b"
 dependencies = [
  "cidr",
  "read_until_slice",
@@ -1743,9 +1743,9 @@ dependencies = [
 
 [[package]]
 name = "rcgen"
-version = "0.13.2"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+checksum = "218a7fbb357f6da42c9fd3610b1a5128d087d460e5386eaa5040705c464611dc"
 dependencies = [
  "pem",
  "ring",
@@ -1756,9 +1756,9 @@ dependencies = [
 
 [[package]]
 name = "read_until_slice"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e030dfc9f0f377bc395d1ca9da7de95d3d2f7b1c25dda8fb2cef5b50a1ef4c53"
+checksum = "6da7149d61be0e93f1a5d243073ef2be299789b6cd4b110ea1a217ce889dd70c"
 dependencies = [
  "pin-project-lite",
  "tokio",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "tiered_server"
-version = "0.4.12"
+version = "0.5.1"
 dependencies = [
  "base64-simd",
  "basic-cookies",
@@ -2432,9 +2432,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.46.0"
+version = "1.46.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1140bb80481756a8cbe10541f37433b459c5aa1e727b4c020fbfebdc25bf3ec4"
+checksum = "0cc3a2344dafbe23a245241fe8b09735b521110d30fcefbbd5feb1797ca35d17"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3132,9 +3132,9 @@ dependencies = [
 
 [[package]]
 name = "zip_static_handler"
-version = "0.18.0"
+version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44fbd9c5701ade8970aaa2862688c8d99fc35da419bc9f344e6c15ef8df07f5b"
+checksum = "da4ee29efcbe449adc62dc935981d600eed95036337eb8479001babe23c4f25c"
 dependencies = [
  "brotli",
  "bytes",

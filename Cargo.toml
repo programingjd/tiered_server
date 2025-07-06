@@ -1,6 +1,6 @@
 [package]
 name = "tiered_server"
-version = "0.4.12"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.85"
 
@@ -110,7 +110,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.10"
+version = "2.11"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -120,12 +120,12 @@ default-features = false
 features = ["ring"]
 
 [dependencies.rcgen]
-version = "0.13"
+version = "0.14"
 default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.45"
+version = "1.46"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
