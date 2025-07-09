@@ -132,7 +132,15 @@ pub(crate) async fn post(
                 let server_name = server_name.clone();
                 #[allow(clippy::let_underscore_future)]
                 let _ = spawn(async move {
-                    Otp::send(&user, Event::Login, None, &snapshot, &server_name).await
+                    Otp::send_with_email(
+                        &user,
+                        &email_norm,
+                        Event::Login,
+                        None,
+                        &snapshot,
+                        &server_name,
+                    )
+                    .await
                 });
             } else {
                 let email_trim = email.trim();
