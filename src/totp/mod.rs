@@ -20,6 +20,7 @@ use tracing::warn;
 struct TemplateData<'a> {
     user: &'a User,
     code: &'a str,
+    #[serde(flatten)]
     action: &'a Action,
 }
 
@@ -219,5 +220,61 @@ impl Totp {
             .collect::<Vec<_>>();
         Snapshot::delete_and_return_before_update(paths.iter()).await?;
         Some(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::totp::action::EmailUpdate;
+    use crate::user::{Email, IdentificationMethod};
+    use serde_json::json;
+
+    #[test]
+    fn test_template_data_serialization() {
+        let template_data = TemplateData {
+            user: &User {
+                id: "user1".to_string(),
+                identification: vec![IdentificationMethod::Email(Email {
+                    normalized_address: "test@example.com".to_string(),
+                    address: "test@example.com".to_string(),
+                })],
+                last_name: "Doe".to_string(),
+                normalized_last_name: "Doe".to_string(),
+                first_name: "John".to_string(),
+                normalized_first_name: "John".to_string(),
+                date_of_birth: 20000101,
+                admin: false,
+                metadata: None,
+            },
+            code: "12345678",
+            action: &Action::UpdateEmail(EmailUpdate {
+                normalized_old_address: "test@example.com".to_string(),
+                normalized_new_address: "new@example.com".to_string(),
+                new_address: "new@example.com".to_string(),
+            }),
+        };
+        let expected = json!({
+            "user": {
+                "id": "user1",
+                "identification": [
+                    {
+                        "type": "email",
+                        "address": "test@example.com",
+                        "normalized_address": "test@example.com"
+                    }
+                ],
+                "last_name": "Doe",
+                "normalized_last_name": "Doe",
+                "first_name": "John",
+                "normalized_first_name": "John",
+                "date_of_birth": 20000101
+            },
+            "code": "12345678",
+            "normalized_old_address": "test@example.com",
+            "normalized_new_address": "new@example.com",
+            "new_address": "new@example.com",
+        });
+        assert_eq!(expected, serde_json::to_value(template_data).unwrap());
     }
 }

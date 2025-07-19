@@ -50,6 +50,7 @@ impl From<String> for Sms {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum IdentificationMethod {
     Email(Email),
     Sms(Sms),
