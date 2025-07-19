@@ -21,8 +21,8 @@ pub(crate) mod handler;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Email {
-    pub(crate) address: String,
-    pub(crate) normalized_address: String,
+    pub address: String,
+    pub normalized_address: String,
 }
 
 impl From<String> for Email {
@@ -36,8 +36,8 @@ impl From<String> for Email {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sms {
-    number: String,
-    normalized_number: String,
+    pub number: String,
+    pub normalized_number: String,
 }
 
 impl From<String> for Sms {
