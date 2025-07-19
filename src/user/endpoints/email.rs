@@ -1,99 +1,117 @@
-use crate::email::EmailUpdate;
-use crate::otp::Otp;
-use crate::otp::action::Event;
+use crate::api::Extension;
+use crate::norm::normalize_email;
 use crate::prefix::API_PATH_PREFIX;
 use crate::session::SessionState;
-use crate::store::snapshot;
-use crate::user::{Email, IdentificationMethod};
-use http_body_util::{BodyExt, Either, Empty, Full, Limited};
+use crate::store::{Snapshot, snapshot};
+use crate::totp::Totp;
+use crate::totp::action::{Action, EmailAddition, EmailUpdate};
+use http_body_util::{BodyExt, Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
+use hyper::header::CONTENT_TYPE;
 use hyper::{Request, Response, StatusCode};
-use serde_json::json;
-use std::sync::Arc;
+use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use tracing::info;
 
-fn dummy_error() -> Box<dyn std::error::Error + Send + Sync> {
-    Box::from("")
-}
-
-pub(crate) async fn post(
+pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
-    server_name: &Arc<String>,
+    extension: &Ext,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     let snapshot = snapshot();
     if let SessionState::Valid { user, .. } =
         SessionState::from_headers(request.headers(), &snapshot)
     {
-        let limited_body = Limited::new(request.into_body(), 4_096);
-        match limited_body.collect().await.and_then(|it| {
-            let bytes = it.to_bytes();
-            let EmailUpdate {
-                old_email,
-                new_email,
-            } = serde_json::from_slice(&bytes).map_err(|_| dummy_error())?;
-            user.identification
-                .iter()
-                .find(|&it| match it {
-                    IdentificationMethod::Email(Email {
-                        normalized_address, ..
-                    }) => old_email == normalized_address,
-                    _ => false,
-                })
-                .ok_or_else(dummy_error)?;
-            let len = new_email.len();
-            if new_email.is_ascii() && len > 5 && new_email[1..len - 4].contains('@') {
-                Ok((
-                    json!({
-                        "old_email": old_email,
-                        "new_email": new_email,
-                    }),
-                    new_email.to_string(),
-                ))
-            } else {
-                Err(dummy_error())
-            }
-        }) {
-            Ok((value, email)) => {
-                if Otp::send_with_email(
-                    &user,
-                    email.as_str(),
-                    Event::EmailUpdate,
-                    Some(value),
-                    &snapshot,
-                    server_name,
-                )
-                .await
-                .is_some()
-                {
-                    info!("202 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
-                    Response::builder()
-                        .status(StatusCode::ACCEPTED)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap()
-                } else {
-                    info!("500 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap()
+        if let Some(boundary) = request
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|it| it.to_str().ok())
+            .and_then(|it| parse_boundary(it).ok())
+        {
+            let mut multipart = Multipart::with_constraints(
+                request.into_body().into_data_stream(),
+                boundary,
+                Constraints::new().size_limit(SizeLimit::new().whole_stream(4_096)),
+            );
+            let mut old_email = None;
+            let mut new_email = None;
+            let mut totp = None;
+            while let Ok(Some(field)) = multipart.next_field().await {
+                match field.name() {
+                    Some("old_email") => {
+                        if let Ok(it) = field.text().await {
+                            old_email = Some(it);
+                        }
+                    }
+                    Some("new_email") => {
+                        if let Ok(it) = field.text().await {
+                            new_email = Some(it);
+                        }
+                    }
+                    Some("totp") => {
+                        if let Ok(it) = field.text().await {
+                            totp = Some(it);
+                        }
+                    }
+                    _ => {}
                 }
             }
-            Err(err) => {
-                if err.downcast_ref::<serde_json::Error>().is_some() {
-                    info!("413 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
-                    Response::builder()
-                        .status(StatusCode::PAYLOAD_TOO_LARGE)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap()
+            if new_email.is_some() {
+                let new_address = new_email.unwrap();
+                let normalized_new_address = normalize_email(&new_address);
+                let action = if let Some(old_email) = old_email {
+                    let normalized_old_address = normalize_email(&old_email);
+                    Action::UpdateEmail(EmailUpdate {
+                        normalized_old_address,
+                        normalized_new_address,
+                        new_address,
+                    })
                 } else {
-                    info!("400 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
-                    Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap()
+                    Action::AddEmail(EmailAddition {
+                        normalized_new_address,
+                        new_address,
+                    })
+                };
+                if let Some(code) = totp {
+                    let key = format!("rng/{}/{}", user.id, action.id());
+                    if let Some(mut totp) = snapshot.get::<Totp>(&key) {
+                        if totp.action == action && totp.is_valid() {
+                            if totp.verify(&code) {
+                                if extension
+                                    .perform_action(&user, crate::api::Action::Totp(totp.action))
+                                    .await
+                                    .is_some()
+                                {
+                                    if let Some(response) = action.handle(user).await {
+                                        return response;
+                                    }
+                                }
+                            } else {
+                                totp.retries += 1;
+                                Snapshot::set_and_wait_for_update(&key, &totp).await;
+                            }
+                        }
+                    }
+                } else if let Some(totp) = Totp::create(&user, action, &snapshot).await {
+                    return if totp.send(&user).await.is_some() {
+                        info!("202 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+                        Response::builder()
+                            .status(StatusCode::ACCEPTED)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap()
+                    } else {
+                        info!("500 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+                        Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Either::Right(Empty::new()))
+                            .unwrap()
+                    };
                 }
             }
         }
+        info!("400 {}/otp/email", API_PATH_PREFIX.without_trailing_slash);
+        Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Either::Right(Empty::new()))
+            .unwrap()
     } else {
         info!("403 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
         Response::builder()

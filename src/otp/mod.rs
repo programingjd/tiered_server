@@ -1,6 +1,6 @@
 use crate::email::Email;
 use crate::handler::static_handler;
-use crate::otp::action::Event;
+use crate::otp::action::Action;
 use crate::otp::signature::token_signature;
 use crate::prefix::API_PATH_PREFIX;
 use crate::store::Snapshot;
@@ -9,7 +9,6 @@ use base64_simd::URL_SAFE_NO_PAD;
 use minijinja::Environment;
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -20,42 +19,35 @@ mod endpoints;
 pub(crate) mod handler;
 mod signature;
 
-const OTP_VALIDITY_DURATION: u32 = 1_200; // 20 mins
-
 #[derive(Serialize)]
 struct TemplateData<'a> {
     user: &'a User,
     link_url: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none", flatten)]
-    value: Option<&'a Value>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Otp {
     id: String,
     user_id: String,
     timestamp: u32,
-    event: Event,
-    data: Option<Value>,
+    action: Action,
 }
 
 impl Otp {
     pub(crate) async fn send_with_email(
         user: &User,
         email: &str,
-        action: Event,
-        value: Option<Value>,
+        action: Action,
         snapshot: &Arc<Snapshot>,
         server_name: &Arc<String>,
     ) -> Option<()> {
-        let otp = Self::create(user, action, value, snapshot).await?;
-        Self::send_otp(user, email, otp, server_name).await
+        let otp = Self::create(user, action, snapshot).await?;
+        otp.send_otp(user, email, server_name).await
     }
 
     pub(crate) async fn send(
         user: &User,
-        action: Event,
-        value: Option<Value>,
+        action: Action,
         snapshot: &Arc<Snapshot>,
         server_name: &Arc<String>,
     ) -> Option<()> {
@@ -63,23 +55,18 @@ impl Otp {
             IdentificationMethod::Email(email) => Some(email.address.as_str()),
             _ => None,
         })?;
-        let otp = Self::create(user, action, value, snapshot).await?;
-        Self::send_otp(user, email, otp, server_name).await
+        let otp = Self::create(user, action, snapshot).await?;
+        otp.send_otp(user, email, server_name).await
     }
 
-    async fn send_otp(
-        user: &User,
-        email: &str,
-        otp: Self,
-        server_name: &Arc<String>,
-    ) -> Option<()> {
-        let id = otp.id.as_str();
+    async fn send_otp(self, user: &User, email: &str, server_name: &Arc<String>) -> Option<()> {
+        let id = self.id.as_str();
         let signature = token_signature(id).expect("token should be url safe base64 encoded");
         let link_url = format!(
             "https://{server_name}{}otp/{id}.{signature}",
             API_PATH_PREFIX.with_trailing_slash
         );
-        let (subject, template_name) = otp.event.email_template();
+        let (subject, template_name) = self.action.email_template();
         let subject = subject?;
         let template_name = template_name?;
         let content = match static_handler()
@@ -115,7 +102,6 @@ impl Otp {
                     template.render(TemplateData {
                         user,
                         link_url: link_url.as_str(),
-                        value: otp.data.as_ref(),
                     })
                 })
             }
@@ -149,12 +135,7 @@ impl Otp {
         }
     }
 
-    async fn create(
-        user: &User,
-        action: Event,
-        data: Option<Value>,
-        snapshot: &Arc<Snapshot>,
-    ) -> Option<Self> {
+    async fn create(user: &User, action: Action, snapshot: &Arc<Snapshot>) -> Option<Self> {
         let timestamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -172,11 +153,10 @@ impl Otp {
             id,
             user_id: user.id.clone(),
             timestamp: action
-                .otp_validity_duration()
+                .validity_duration()
                 .map(|it| timestamp + it)
                 .unwrap_or(0),
-            event: action,
-            data,
+            action,
         };
         let _ = Self::remove_expired(timestamp, snapshot, Some(user.id.as_str())).await;
         Snapshot::set_and_wait_for_update(key.as_str(), &otp).await?;
@@ -189,31 +169,26 @@ impl Otp {
         user_id: Option<&str>,
     ) -> Option<()> {
         let paths: Vec<String> = snapshot
-            .list::<Otp>("opt/")
+            .list::<Otp>("otp/")
             .filter_map(|(k, otp)| {
-                if otp.timestamp == 0 {
-                    if let Some(user_id) = user_id {
-                        if otp.user_id == user_id {
+                if let Some(user_id) = user_id {
+                    if user_id == otp.user_id {
+                        return Some(k.to_string());
+                    }
+                }
+                if let Some(duration) = otp.action.validity_duration() {
+                    if otp.timestamp > timestamp {
+                        Some(k.to_string())
+                    } else {
+                        let elapsed = timestamp - otp.timestamp;
+                        if elapsed > duration {
                             Some(k.to_string())
                         } else {
                             None
                         }
-                    } else {
-                        None
                     }
                 } else {
-                    let elapsed = timestamp - otp.timestamp;
-                    if otp.timestamp > timestamp || elapsed > OTP_VALIDITY_DURATION {
-                        Some(k.to_string())
-                    } else if let Some(user_id) = user_id {
-                        if otp.user_id == user_id {
-                            Some(k.to_string())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
+                    None
                 }
             })
             .collect::<Vec<_>>();

@@ -5,7 +5,7 @@ use crate::norm::{
     normalize_phone_number,
 };
 use crate::otp::Otp;
-use crate::otp::action::Event;
+use crate::otp::action::Action;
 use crate::server::DOMAIN_APEX;
 use crate::store::Snapshot;
 use base64_simd::URL_SAFE_NO_PAD;
@@ -61,9 +61,9 @@ pub struct User {
     pub id: String,
     pub identification: Vec<IdentificationMethod>,
     pub last_name: String,
-    pub last_name_norm: String,
+    pub normalized_last_name: String,
     pub first_name: String,
-    pub first_name_norm: String,
+    pub normalized_first_name: String,
     pub date_of_birth: u32,
     #[serde(skip_serializing_if = "is_default", default = "Default::default")]
     pub admin: bool,
@@ -79,11 +79,11 @@ impl User {
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn create(
         email: String,
-        email_norm: Option<String>,
+        normalized_email: Option<String>,
         last_name: String,
-        last_name_norm: Option<String>,
+        normalized_last_name: Option<String>,
         first_name: String,
-        first_name_norm: Option<String>,
+        normalized_first_name: Option<String>,
         date_of_birth: u32, // yyyyMMdd
         admin: bool,
         needs_validation: bool,
@@ -97,7 +97,7 @@ impl User {
             .as_secs() as u32;
         let id = Self::new_id(timestamp);
         let identification = vec![IdentificationMethod::Email(Email {
-            normalized_address: email_norm.unwrap_or_else(|| normalize_email(&email)),
+            normalized_address: normalized_email.unwrap_or_else(|| normalize_email(&email)),
             address: email,
         })];
         let key = format!("{}/{id}", if needs_validation { "reg" } else { "acc" });
@@ -105,16 +105,16 @@ impl User {
             return None;
         }
         let first_name_norm =
-            first_name_norm.unwrap_or_else(|| normalize_first_name(first_name.as_str()));
+            normalized_first_name.unwrap_or_else(|| normalize_first_name(first_name.as_str()));
         let last_name_norm =
-            last_name_norm.unwrap_or_else(|| normalize_last_name(last_name.as_str()));
+            normalized_last_name.unwrap_or_else(|| normalize_last_name(last_name.as_str()));
         let user = Self {
             id,
             identification,
             last_name,
-            last_name_norm,
+            normalized_last_name: last_name_norm,
             first_name,
-            first_name_norm,
+            normalized_first_name: first_name_norm,
             date_of_birth,
             admin,
             metadata: if needs_validation {
@@ -125,7 +125,7 @@ impl User {
         };
         Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
         if !needs_validation && !skip_notification {
-            Otp::send(&user, Event::FirstLogin, None, snapshot, server_name).await?;
+            Otp::send(&user, Action::FirstLogin, snapshot, server_name).await?;
         }
         Some(user)
     }
@@ -210,17 +210,17 @@ pub(crate) async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option
         let last_name = iter.next()?;
         let first_name = iter.next()?;
         let date_of_birth = iter.next()?.parse::<u32>().ok()?;
-        let email_norm = normalize_email(email);
-        let last_name_norm = normalize_last_name(last_name);
-        let first_name_norm = normalize_first_name(first_name);
+        let normalized_email = normalize_email(email);
+        let normalized_last_name = normalize_last_name(last_name);
+        let normalized_first_name = normalize_first_name(first_name);
         if !users.iter().any(|user| {
             user.identification.iter().any(|it| match it {
                 IdentificationMethod::Email(Email {
                     normalized_address, ..
                 }) => {
-                    normalized_address == &email_norm
-                        && user.last_name_norm == last_name_norm
-                        && user.first_name_norm == first_name_norm
+                    normalized_address == &normalized_email
+                        && user.normalized_last_name == normalized_last_name
+                        && user.normalized_first_name == normalized_first_name
                         && user.date_of_birth == date_of_birth
                 }
                 _ => false,

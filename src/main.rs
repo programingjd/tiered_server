@@ -1,7 +1,6 @@
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
-use serde_json::Value;
 use std::sync::Arc;
 use tiered_server::api::{Action, Extension};
 use tiered_server::server::serve;
@@ -18,12 +17,7 @@ impl Extension for ApiExtension {
         None
     }
 
-    async fn perform_action(
-        &self,
-        _user: &User,
-        _action: Action,
-        _value: Option<&Value>,
-    ) -> Option<()> {
+    async fn perform_action(&self, _user: &User, _action: Action) -> Option<()> {
         Some(())
     }
 }

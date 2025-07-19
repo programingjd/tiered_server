@@ -129,6 +129,12 @@ one-time login tokens are under `otp`:
 otp/{otp_token} -> (user_id,timestamp)
 ```
 
+proof of ownership code requests are under `rng`:
+
+```
+rng/{user_id}/{hash} -> (secret,timestamp,retries)
+```
+
 user data is under `acc`:
 
 ```

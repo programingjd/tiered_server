@@ -39,10 +39,10 @@ pub(crate) async fn post(
             snapshot
                 .list::<crate::user::User>("acc/")
                 .filter_map(|(_, user)| {
-                    if last_name != user.last_name_norm {
+                    if last_name != user.normalized_last_name {
                         return None;
                     }
-                    if first_name != user.first_name_norm {
+                    if first_name != user.normalized_first_name {
                         return None;
                     }
                     if date_of_birth != user.date_of_birth {

@@ -17,4 +17,5 @@ mod push_webhook;
 pub mod server;
 pub mod session;
 pub mod store;
+pub mod totp;
 pub mod user;

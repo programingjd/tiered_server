@@ -43,7 +43,10 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, GET);
-            info!("405 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+            info!(
+                "405 {}/user/passkeys",
+                API_PATH_PREFIX.without_trailing_slash
+            );
             response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -56,7 +59,7 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
             let mut response = Response::builder();
             let headers = response.headers_mut().unwrap();
             headers.insert(ALLOW, DELETE);
-            info!("405 {}/user/email", API_PATH_PREFIX.without_trailing_slash);
+            info!("405 {}/user{path}", API_PATH_PREFIX.without_trailing_slash);
             response
                 .status(StatusCode::METHOD_NOT_ALLOWED)
                 .body(Either::Right(Empty::new()))
@@ -75,7 +78,7 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
                 .body(Either::Right(Empty::new()))
                 .unwrap()
         } else {
-            endpoints::email::post(request, server_name).await
+            endpoints::email::post(request, extension).await
         }
     } else if let Some(path) = path.strip_prefix("/admin") {
         let snapshot = snapshot();

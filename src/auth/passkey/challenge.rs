@@ -157,12 +157,18 @@ pub(crate) fn verify(challenge: &[u8], challenge_metadata: &ChallengeMetadata) -
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs() as u32;
-    let elapsed = now - timestamp;
-    if timestamp > now || elapsed > CHALLENGE_VALIDITY_DURATION {
-        debug!("challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}");
+    if timestamp > now {
         false
     } else {
-        let signature = signature(&challenge[..len + 54]);
-        signature.as_ref() == &challenge[len + 54..]
+        let elapsed = now - timestamp;
+        if elapsed > CHALLENGE_VALIDITY_DURATION {
+            debug!(
+                "challenge expired {now} - {timestamp} = {elapsed} > {CHALLENGE_VALIDITY_DURATION}"
+            );
+            false
+        } else {
+            let signature = signature(&challenge[..len + 54]);
+            signature.as_ref() == &challenge[len + 54..]
+        }
     }
 }

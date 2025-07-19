@@ -1,12 +1,12 @@
-use crate::api::{Action, Extension};
+use crate::api::Extension;
 use crate::env::ConfigurationKey::{ApiErrorOtpAlreadyUsed, ApiErrorOtpExpired};
 use crate::env::secret_value;
 use crate::handler::static_handler;
 use crate::iter::single;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
-use crate::otp::action::Event;
+use crate::otp::Otp;
+use crate::otp::action::Action;
 use crate::otp::signature::token_signature;
-use crate::otp::{OTP_VALIDITY_DURATION, Otp};
 use crate::prefix::API_PATH_PREFIX;
 use crate::store::{Snapshot, snapshot};
 use crate::user::{IdentificationMethod, User};
@@ -68,15 +68,15 @@ pub(crate) async fn post(
                 _ => {}
             }
         }
-        let email_norm = email.as_ref().map(|it| normalize_email(it));
-        let last_name_norm = last_name.as_ref().map(|it| normalize_last_name(it));
-        let first_name_norm = first_name.as_ref().map(|it| normalize_first_name(it));
+        let normalized_email = email.as_ref().map(|it| normalize_email(it));
+        let normalized_last_name = last_name.as_ref().map(|it| normalize_last_name(it));
+        let normalized_first_name = first_name.as_ref().map(|it| normalize_first_name(it));
         let snapshot = snapshot();
         let single = single(snapshot.list::<User>("acc/").filter_map(|(_, user)| {
-            if let Some(ref email_norm) = email_norm {
+            if let Some(ref normalized_email) = normalized_email {
                 if !user.identification.iter().any(|it| {
                     if let IdentificationMethod::Email(e) = it {
-                        email_norm == &e.normalized_address
+                        normalized_email == &e.normalized_address
                     } else {
                         false
                     }
@@ -84,13 +84,13 @@ pub(crate) async fn post(
                     return None;
                 }
             }
-            if let Some(ref last_name_norm) = last_name_norm {
-                if last_name_norm != &user.last_name_norm {
+            if let Some(ref normalized_last_name) = normalized_last_name {
+                if normalized_last_name != &user.normalized_last_name {
                     return None;
                 }
             }
-            if let Some(ref first_name_norm) = first_name_norm {
-                if first_name_norm != &user.first_name_norm {
+            if let Some(ref normalized_first_name) = normalized_first_name {
+                if normalized_first_name != &user.normalized_first_name {
                     return None;
                 }
             }
@@ -105,18 +105,17 @@ pub(crate) async fn post(
             let server_name = server_name.clone();
             #[allow(clippy::let_underscore_future)]
             let _ = spawn(async move {
-                if let Some(email_norm) = email_norm {
+                if let Some(normalized_email) = normalized_email {
                     Otp::send_with_email(
                         &user,
-                        &email_norm,
-                        Event::Login,
-                        None,
+                        &normalized_email,
+                        Action::Login,
                         &snapshot,
                         &server_name,
                     )
                     .await
                 } else {
-                    Otp::send(&user, Event::Login, None, &snapshot, &server_name).await
+                    Otp::send(&user, Action::Login, &snapshot, &server_name).await
                 }
             });
         }
@@ -168,17 +167,12 @@ pub(crate) async fn get<Ext: Extension + Send + Sync>(
                                 .duration_since(SystemTime::UNIX_EPOCH)
                                 .unwrap()
                                 .as_secs() as u32;
-                            let elapsed = now - timestamp;
-                            let duration = otp.event.otp_validity_duration().unwrap_or(0);
-                            if otp.timestamp != timestamp + duration || timestamp > now + duration {
-                                if otp.timestamp != timestamp + duration {
-                                    debug!(
-                                        "otp timestamp {} != {timestamp} + {duration}",
-                                        otp.timestamp
-                                    );
-                                } else {
-                                    debug!("otp timestamp {timestamp} > {now} (now) + {duration}");
-                                }
+                            let duration = otp.action.validity_duration().unwrap_or(0);
+                            if otp.timestamp != timestamp + duration {
+                                debug!(
+                                    "otp timestamp {} != {timestamp} + {duration}",
+                                    otp.timestamp
+                                );
                                 info!(
                                     "400 {}/otp/{payload}",
                                     API_PATH_PREFIX.without_trailing_slash
@@ -188,16 +182,17 @@ pub(crate) async fn get<Ext: Extension + Send + Sync>(
                                     .body(Either::Right(Empty::new()))
                                     .unwrap();
                             }
-                            if elapsed > OTP_VALIDITY_DURATION {
+                            if timestamp > now + duration {
+                                debug!("otp timestamp {timestamp} > {now} (now) + {duration}");
                                 info!(
-                                    "410 {}/otp/{payload}",
+                                    "400 {}/otp/{payload}",
                                     API_PATH_PREFIX.without_trailing_slash
                                 );
                                 let mut response = error_page(request, *API_ERROR_OTP_EXPIRED);
                                 *response.status_mut() = StatusCode::GONE;
                                 return response;
                             }
-                        } else if otp.event.otp_validity_duration().is_some() {
+                        } else if otp.action.validity_duration().is_some() {
                             return Response::builder()
                                 .status(StatusCode::BAD_REQUEST)
                                 .body(Either::Right(Empty::new()))
@@ -206,13 +201,11 @@ pub(crate) async fn get<Ext: Extension + Send + Sync>(
                         let key = format!("acc/{}", otp.user_id);
                         if let Some(user) = snapshot.get::<User>(key.as_str()) {
                             if extension
-                                .perform_action(&user, Action::Otp(otp.event), otp.data.as_ref())
+                                .perform_action(&user, crate::api::Action::Otp(otp.action))
                                 .await
                                 .is_some()
                             {
-                                if let Some(response) =
-                                    otp.event.handle(user, otp.data, &snapshot).await
-                                {
+                                if let Some(response) = otp.action.handle(user, &snapshot).await {
                                     info!(
                                         "{} {}/otp/{payload}",
                                         response.status().as_u16(),

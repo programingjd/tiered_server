@@ -2,15 +2,15 @@ use crate::auth::handler::handle_auth;
 use crate::otp::handler::handle_otp;
 use crate::user::User;
 use crate::user::handler::handle_user;
-use crate::{moderation, otp};
+use crate::{moderation, otp, totp};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
-use serde_json::Value;
 use std::sync::Arc;
 
 pub enum Action {
-    Otp(otp::action::Event),
+    Otp(otp::action::Action),
+    Totp(totp::action::Action),
     Moderation(moderation::Event),
 }
 
@@ -24,7 +24,6 @@ pub trait Extension {
         &self,
         user: &User,
         action: Action,
-        value: Option<&Value>,
     ) -> impl Future<Output = Option<()>> + Send;
 }
 

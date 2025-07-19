@@ -1,7 +1,7 @@
 use crate::headers::JSON;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::otp::Otp;
-use crate::otp::action::Event;
+use crate::otp::action::Action;
 use crate::prefix::API_PATH_PREFIX;
 use crate::session::{SESSION_MAX_AGE, SessionState};
 use crate::store::snapshot;
@@ -41,7 +41,7 @@ pub(crate) async fn post(
         let mut last_name = None;
         let mut first_name = None;
         let mut dob = None;
-        let mut otp = None;
+        let mut totp = None;
         while let Ok(Some(field)) = multipart.next_field().await {
             match field.name() {
                 Some("email") => {
@@ -64,9 +64,9 @@ pub(crate) async fn post(
                         dob = it.parse::<u32>().ok()
                     }
                 }
-                Some("otp") => {
+                Some("totp") => {
                     if let Ok(it) = field.text().await {
-                        otp = Some(it);
+                        totp = Some(it);
                     }
                 }
                 _ => {}
@@ -84,13 +84,13 @@ pub(crate) async fn post(
         });
         if email.is_some() && last_name.is_some() && first_name.is_some() && dob.is_some() {
             let email = email.unwrap();
-            let email_norm = normalize_email(&email);
+            let normalized_email = normalize_email(&email);
             let last_name = last_name.unwrap();
-            let last_name_norm = normalize_last_name(&last_name);
+            let normalized_last_name = normalize_last_name(&last_name);
             let first_name = first_name.unwrap();
-            let first_name_norm = normalize_first_name(&first_name);
+            let normalized_first_name = normalize_first_name(&first_name);
             let dob = dob.unwrap();
-            let needs_moderation = if let Some(otp) = otp {
+            let needs_moderation = if let Some(otp) = totp {
                 if let Some(key) = *VALIDATION_TOTP_SECRET {
                     let generator = TotpGenerator::new().build();
                     if generator
@@ -116,10 +116,10 @@ pub(crate) async fn post(
             let user = snapshot.list::<User>("acc/").find_map(|(_, user)| {
                 if user.identification.iter().any(|it| match it {
                     IdentificationMethod::Email(email) => {
-                        email_norm == email.normalized_address
+                        normalized_email == email.normalized_address
                             && user.date_of_birth == dob
-                            && user.last_name_norm == last_name_norm
-                            && user.first_name_norm == first_name_norm
+                            && user.normalized_last_name == normalized_last_name
+                            && user.normalized_first_name == normalized_first_name
                     }
                     _ => false,
                 }) {
@@ -134,9 +134,8 @@ pub(crate) async fn post(
                 let _ = spawn(async move {
                     Otp::send_with_email(
                         &user,
-                        &email_norm,
-                        Event::Login,
-                        None,
+                        &normalized_email,
+                        Action::Login,
                         &snapshot,
                         &server_name,
                     )
@@ -152,19 +151,19 @@ pub(crate) async fn post(
                     } else {
                         email_trim.to_string()
                     },
-                    Some(email_norm),
+                    Some(normalized_email),
                     if last_name.len() == last_name_trim.len() {
                         last_name
                     } else {
                         last_name_trim.to_string()
                     },
-                    Some(last_name_norm),
+                    Some(normalized_last_name),
                     if first_name.len() == first_name_trim.len() {
                         first_name
                     } else {
                         first_name_trim.to_string()
                     },
-                    Some(first_name_norm),
+                    Some(normalized_first_name),
                     dob,
                     false,
                     needs_moderation,
