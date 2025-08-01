@@ -1,6 +1,6 @@
 [package]
 name = "tiered_server"
-version = "0.6.1"
+version = "0.6.3"
 edition = "2024"
 rust-version = "1.85"
 
@@ -154,7 +154,7 @@ default-features = false
 features = ["std", "sha2"]
 
 [dev-dependencies.ed25519-dalek]
-version = "2.1"
+version = "2.2"
 default-features = false
 features = ["std", "rand_core", "pkcs8"]
 

@@ -19,7 +19,7 @@ use tracing::{info, trace};
 mod endpoints;
 pub(crate) mod handler;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Email {
     pub address: String,
     pub normalized_address: String,
@@ -34,7 +34,7 @@ impl From<String> for Email {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Sms {
     pub number: String,
     pub normalized_number: String,
@@ -49,7 +49,7 @@ impl From<String> for Sms {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum IdentificationMethod {
     Email(Email),
@@ -57,7 +57,7 @@ pub enum IdentificationMethod {
     NotSet,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub identification: Vec<IdentificationMethod>,
