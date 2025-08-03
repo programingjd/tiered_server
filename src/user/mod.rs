@@ -72,6 +72,22 @@ pub struct User {
     pub metadata: Option<Value>,
 }
 
+impl PartialEq for IdentificationMethod {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (IdentificationMethod::Email(a), IdentificationMethod::Email(b)) => {
+                a.normalized_address == b.normalized_address
+            }
+            (IdentificationMethod::Sms(a), IdentificationMethod::Sms(b)) => {
+                a.normalized_number == b.normalized_number
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for IdentificationMethod {}
+
 fn is_default<T: Default + PartialEq>(t: &T) -> bool {
     t == &T::default()
 }
