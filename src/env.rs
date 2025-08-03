@@ -31,13 +31,17 @@ static FILE: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
 
 static ENV: LazyLock<BTreeMap<&'static str, &'static str>> = LazyLock::new(|| {
     let mut map = BTreeMap::<&'static str, &'static str>::new();
-    std::env::vars().for_each(|(key, value)| {
-        info!("{key} loaded from environment variable");
-        map.insert(
-            key.trim().to_string().leak(),
-            value.trim().to_string().leak(),
-        );
-    });
+    if let Ok(prefix) = std::env::var("ENV_PREFIX") {
+        std::env::vars().for_each(|(key, value)| {
+            if let Some(key) = key.strip_prefix(&prefix) {
+                info!("{key} loaded from environment variable");
+                map.insert(
+                    key.trim().to_string().leak(),
+                    value.trim().to_string().leak(),
+                );
+            }
+        });
+    }
     map
 });
 
