@@ -180,7 +180,7 @@ impl User {
     }
 }
 
-pub(crate) async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option<()> {
+pub async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option<()> {
     let value = secret_value(AdminUsers).unwrap_or("");
     let users = snapshot
         .list::<User>("acc/")
