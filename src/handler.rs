@@ -34,18 +34,12 @@ pub fn static_handler() -> Arc<Handler> {
                         github_branch,
                     ))
                     .await
-                    .map_err(|err| {
-                        warn!("failed to download static content: {err:?}");
-                        err
-                    })
+                    .inspect_err(|err| warn!("failed to download static content: {err:?}"))
                     .ok()
                 })
         })
         .join()
-        .map_err(|err| {
-            warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| warn!("{err:?}"))
         .ok()
         .flatten()
         .expect("failed to download static content");
@@ -55,10 +49,7 @@ pub fn static_handler() -> Arc<Handler> {
                 .with_zip_prefix(format!("{github_repository}-{github_branch}/"))
                 .with_zip(zip)
                 .try_build()
-                .map_err(|err| {
-                    warn!("failed to build static content handler: {err:?}");
-                    err
-                })
+                .inspect_err(|err| warn!("failed to build static content handler: {err:?}"))
                 .expect("failed to extract static content"),
         );
         HANDLER.set(static_handler.clone());

@@ -115,10 +115,7 @@ pub fn snapshot() -> Arc<Snapshot> {
                     })
             })
             .join()
-            .map_err(|err| {
-                warn!("{err:?}");
-                err
-            })
+            .inspect_err(|err| warn!("{err:?}"))
             .ok()
             .flatten()
             .expect("failed to create snapshot"),
@@ -135,10 +132,7 @@ async fn snapshot_revision() -> Option<u32> {
     let revision = store()?
         .head(&Path::from("rev"))
         .await
-        .map_err(|err| {
-            warn!("failed to get remove store revision:\n{err:?}");
-            err
-        })
+        .inspect_err(|err| warn!("failed to get remove store revision:\n{err:?}"))
         .ok()?
         .last_modified
         .timestamp() as u32;
@@ -278,10 +272,7 @@ impl Snapshot {
                     let _ = store
                         .put(&Path::from("rev"), PutPayload::new())
                         .await
-                        .map_err(|err| {
-                            warn!("failed to update store revision {err:?}");
-                            err
-                        });
+                        .inspect_err(|err| warn!("failed to update store revision {err:?}"));
                     RATE_LIMITER.acquire_one().await;
                     Some(())
                 } else {
@@ -330,10 +321,7 @@ impl Snapshot {
             let _ = store
                 .put(&Path::from("rev"), PutPayload::new())
                 .await
-                .map_err(|err| {
-                    warn!("failed to update store revision {err:?}");
-                    err
-                });
+                .inspect_err(|err| warn!("failed to update store revision {err:?}"));
             RATE_LIMITER.acquire_one().await;
             Some(())
         } else {
@@ -346,10 +334,7 @@ impl Snapshot {
         let _ = store
             .put(&Path::from("rev"), PutPayload::new())
             .await
-            .map_err(|err| {
-                warn!("failed to update store revision {err:?}");
-                err
-            });
+            .inspect_err(|err| warn!("failed to update store revision {err:?}"));
         RATE_LIMITER.acquire_one().await;
         trace!("cache revision before update: {revision}");
         let mut retries = 0_u8;
@@ -379,19 +364,13 @@ impl Snapshot {
                 debug!("backup: {path}");
                 // header
                 //     .set_path(path)
-                //     .map_err(|err| {
-                //         warn!("{err:?}");
-                //         err
-                //     })
+                //     .inspect_err(|err| warn!("{err:?}"))
                 //     .ok()?;
                 header.set_size(entry.data.len() as u64);
                 header.set_mtime(entry.timestamp as u64);
                 header.set_cksum();
                 tar.append_data(&mut header, path, entry.data.as_slice())
-                    .map_err(|err| {
-                        warn!("{err:?}");
-                        err
-                    })
+                    .inspect_err(|err| warn!("{err:?}"))
                     .ok()?;
             }
             tar.finish().ok()?;
@@ -533,9 +512,6 @@ fn decrypt<T: DeserializeOwned>(nonce: [u8; 12], encrypted_base64: &[u8]) -> Opt
         encrypted.pop();
     }
     serde_json::from_reader(encrypted.as_slice())
-        .map_err(|err| {
-            warn!("{err:?}");
-            err
-        })
+        .inspect_err(|err| warn!("{err:?}"))
         .ok()
 }

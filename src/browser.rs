@@ -77,10 +77,7 @@ fn platform_from_sec_ua_platform(sec_ua_platform_value: &str) -> Platform {
     let result: Result<_, serde_json::Error> =
         Platform::deserialize(sec_ua_platform_value.into_deserializer());
     result
-        .map_err(|err| {
-            debug!("{err:?}");
-            err
-        })
+        .inspect_err(|err| debug!("{err:?}"))
         .unwrap_or(Platform::Unknown)
 }
 
