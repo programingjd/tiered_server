@@ -1,6 +1,6 @@
 [package]
 name = "tiered_server"
-version = "0.6.7"
+version = "0.6.8"
 edition = "2024"
 rust-version = "1.85"
 
@@ -125,7 +125,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.46"
+version = "1.47"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
