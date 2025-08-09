@@ -6,6 +6,8 @@ use crate::{moderation, otp, totp};
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response, StatusCode};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub enum Action {
@@ -25,6 +27,16 @@ pub trait Extension {
         user: &User,
         action: Action,
     ) -> impl Future<Output = Option<()>> + Send;
+    fn accept_user_registration(
+        &self,
+        _normalized_email: &str,
+        _normalized_last_name: &str,
+        _normalized_first_name: &str,
+        _dob: u32,
+        _params: BTreeMap<String, String>,
+    ) -> impl Future<Output = Option<Option<Value>>> + Send {
+        std::future::ready(Some(None))
+    }
 }
 
 pub(crate) async fn handle_api<Ext: Extension + Send + Sync>(

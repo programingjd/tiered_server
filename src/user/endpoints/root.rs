@@ -1,3 +1,4 @@
+use crate::api::Extension;
 use crate::headers::JSON;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::otp::Otp;
@@ -13,6 +14,7 @@ use hyper::{Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::spawn;
@@ -22,9 +24,10 @@ use tracing::info;
 const SECS_PER_YEAR: u64 = 31_556_952;
 
 #[allow(clippy::inconsistent_digit_grouping)]
-pub(crate) async fn post(
+pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
+    extension: &Ext,
 ) -> Response<Either<Full<Bytes>, Empty<Bytes>>> {
     if let Some(boundary) = request
         .headers()
@@ -42,34 +45,45 @@ pub(crate) async fn post(
         let mut first_name = None;
         let mut dob = None;
         let mut totp = None;
+        let mut params = BTreeMap::new();
         while let Ok(Some(field)) = multipart.next_field().await {
-            match field.name() {
+            if let Some((extra_key, field)) = match field.name() {
                 Some("email") => {
                     if let Ok(it) = field.text().await {
                         email = Some(it);
                     }
+                    None
                 }
                 Some("last_name") => {
                     if let Ok(it) = field.text().await {
                         last_name = Some(it);
                     }
+                    None
                 }
                 Some("first_name") => {
                     if let Ok(it) = field.text().await {
                         first_name = Some(it);
                     }
+                    None
                 }
                 Some("dob") => {
                     if let Ok(it) = field.text().await {
                         dob = it.parse::<u32>().ok()
                     }
+                    None
                 }
                 Some("totp") => {
                     if let Ok(it) = field.text().await {
                         totp = Some(it);
                     }
+                    None
                 }
-                _ => {}
+                Some(key) => Some((key.to_string(), field)),
+                None => None,
+            } {
+                if let Ok(it) = field.text().await {
+                    params.insert(extra_key, it);
+                }
             }
         }
         let dob = dob.filter(|&it| {
@@ -142,36 +156,54 @@ pub(crate) async fn post(
                     .await
                 });
             } else {
-                let email_trim = email.trim();
-                let last_name_trim = last_name.trim();
-                let first_name_trim = first_name.trim();
-                let _user = User::create(
-                    if email.len() == email_trim.len() {
-                        email
-                    } else {
-                        email_trim.to_string()
-                    },
-                    Some(normalized_email),
-                    if last_name.len() == last_name_trim.len() {
-                        last_name
-                    } else {
-                        last_name_trim.to_string()
-                    },
-                    Some(normalized_last_name),
-                    if first_name.len() == first_name_trim.len() {
-                        first_name
-                    } else {
-                        first_name_trim.to_string()
-                    },
-                    Some(normalized_first_name),
-                    dob,
-                    false,
-                    needs_moderation,
-                    false,
-                    &snapshot,
-                    server_name,
-                )
-                .await;
+                if let Some(metadata) = extension
+                    .accept_user_registration(
+                        &normalized_email,
+                        &normalized_last_name,
+                        &normalized_first_name,
+                        dob,
+                        params,
+                    )
+                    .await
+                {
+                    let email_trim = email.trim();
+                    let last_name_trim = last_name.trim();
+                    let first_name_trim = first_name.trim();
+                    let _user = User::create(
+                        if email.len() == email_trim.len() {
+                            email
+                        } else {
+                            email_trim.to_string()
+                        },
+                        Some(normalized_email),
+                        if last_name.len() == last_name_trim.len() {
+                            last_name
+                        } else {
+                            last_name_trim.to_string()
+                        },
+                        Some(normalized_last_name),
+                        if first_name.len() == first_name_trim.len() {
+                            first_name
+                        } else {
+                            first_name_trim.to_string()
+                        },
+                        Some(normalized_first_name),
+                        dob,
+                        metadata,
+                        false,
+                        needs_moderation,
+                        false,
+                        &snapshot,
+                        server_name,
+                    )
+                    .await;
+                } else {
+                    info!("400 {}/user", API_PATH_PREFIX.without_trailing_slash);
+                    return Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .body(Either::Right(Empty::new()))
+                        .unwrap();
+                }
             }
             info!("202 {}/user", API_PATH_PREFIX.without_trailing_slash);
             return Response::builder()

@@ -102,6 +102,7 @@ impl User {
         first_name: String,
         normalized_first_name: Option<String>,
         date_of_birth: u32, // yyyyMMdd
+        metadata: Option<Value>,
         admin: bool,
         needs_validation: bool,
         skip_notification: bool,
@@ -135,9 +136,15 @@ impl User {
             date_of_birth,
             admin,
             metadata: if needs_validation {
-                Some(json!({"timestamp": timestamp}))
+                Some(if let Some(mut metadata) = metadata {
+                    let obj = metadata.as_object_mut()?;
+                    obj.insert("timestamp".to_string(), timestamp.into());
+                    metadata
+                } else {
+                    json!({"timestamp": timestamp})
+                })
             } else {
-                None
+                metadata
             },
         };
         Snapshot::set_and_wait_for_update(key.as_str(), &user).await?;
@@ -253,6 +260,7 @@ pub async fn ensure_admin_users_exist(snapshot: &Arc<Snapshot>) -> Option<()> {
                 first_name.trim().to_string(),
                 None,
                 date_of_birth,
+                None,
                 true,
                 false,
                 true,

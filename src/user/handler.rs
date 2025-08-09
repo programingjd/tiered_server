@@ -25,7 +25,7 @@ pub(crate) async fn handle_user<Ext: Extension + Send + Sync>(
         .unwrap();
     if path == "/" || path.is_empty() {
         if request.method() == Method::POST {
-            endpoints::root::post(request, server_name).await
+            endpoints::root::post(request, server_name, extension).await
         } else if request.method() == Method::GET {
             endpoints::root::get(request).await
         } else {
