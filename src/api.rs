@@ -17,8 +17,13 @@ pub enum Action {
 }
 
 pub enum RegistrationScreening {
-    Accept { metadata: Option<Value> },
-    Reject { reason: &'static str },
+    Accept {
+        metadata: Option<Value>,
+        needs_moderation: bool,
+    },
+    Reject {
+        reason: &'static str,
+    },
 }
 
 pub trait Extension {
@@ -40,7 +45,10 @@ pub trait Extension {
         _dob: u32,
         _params: BTreeMap<String, String>,
     ) -> impl Future<Output = RegistrationScreening> + Send {
-        std::future::ready(RegistrationScreening::Accept { metadata: None })
+        std::future::ready(RegistrationScreening::Accept {
+            metadata: None,
+            needs_moderation: true,
+        })
     }
 }
 

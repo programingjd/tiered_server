@@ -155,7 +155,10 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                     )
                     .await
                 });
-            } else if let RegistrationScreening::Accept { metadata } = extension
+            } else if let RegistrationScreening::Accept {
+                metadata,
+                needs_moderation: needs_validation,
+            } = extension
                 .screen_user_registration(
                     &normalized_email,
                     &normalized_last_name,
@@ -190,7 +193,7 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                     dob,
                     metadata,
                     false,
-                    needs_moderation,
+                    needs_moderation && needs_validation,
                     false,
                     &snapshot,
                     server_name,
