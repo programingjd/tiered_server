@@ -23,7 +23,7 @@ use tracing::info;
 
 const SECS_PER_YEAR: u64 = 31_556_952;
 
-#[allow(clippy::inconsistent_digit_grouping, clippy::unnecessary_unwrap)]
+#[allow(clippy::inconsistent_digit_grouping)]
 pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
@@ -96,14 +96,14 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                 * 1_00_00) as u32;
             it < max_dob && it > 1900_00_00_u32
         });
-        if email.is_some() && last_name.is_some() && first_name.is_some() && dob.is_some() {
-            let email = email.unwrap();
+        if let Some(email) = email
+            && let Some(last_name) = last_name
+            && let Some(first_name) = first_name
+            && let Some(dob) = dob
+        {
             let normalized_email = normalize_email(&email);
-            let last_name = last_name.unwrap();
             let normalized_last_name = normalize_last_name(&last_name);
-            let first_name = first_name.unwrap();
             let normalized_first_name = normalize_first_name(&first_name);
-            let dob = dob.unwrap();
             let needs_moderation = if let Some(otp) = totp {
                 if let Some(key) = *VALIDATION_TOTP_SECRET {
                     let generator = TotpGenerator::new().build();

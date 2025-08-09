@@ -12,7 +12,6 @@ use hyper::{Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use tracing::info;
 
-#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     extension: &Ext,
@@ -55,8 +54,7 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                     _ => {}
                 }
             }
-            if new_email.is_some() {
-                let new_address = new_email.unwrap();
+            if let Some(new_address) = new_email {
                 let normalized_new_address = normalize_email(&new_address);
                 let action = if let Some(old_email) = old_email {
                     let normalized_old_address = normalize_email(&old_email);

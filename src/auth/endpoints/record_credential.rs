@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::info;
 
-#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post(
     request: Request<Incoming>,
     snapshot: &Arc<Snapshot>,
@@ -79,12 +78,14 @@ pub(crate) async fn post(
                 _ => {}
             }
         }
-        if i.is_some() && challenge_verified {
+        if let Some(i) = i
+            && challenge_verified
+        {
             let timestamp = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap()
                 .as_secs() as u32;
-            if let Some(passkey) = PassKey::new(i.unwrap(), timestamp, browser_info, a, k) {
+            if let Some(passkey) = PassKey::new(i, timestamp, browser_info, a, k) {
                 if Snapshot::set_and_wait_for_update(
                     &format!("pk/{}/{}", user.id, passkey.id),
                     &passkey,

@@ -13,7 +13,6 @@ use ring::digest::{SHA256, digest};
 use std::sync::Arc;
 use tracing::info;
 
-#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post(
     request: Request<Incoming>,
     server_name: &Arc<String>,
@@ -83,37 +82,28 @@ pub(crate) async fn post(
                 _ => {}
             }
         }
-        if i.is_some()
-            && u.is_some()
-            && hash.is_some()
+        if let Some(passkey_id) = i
+            && let Some(user_id) = u
+            && let Some(hash) = hash
             && !s.is_empty()
             && !d.is_empty()
             && digest(&SHA256, server_name.as_bytes()).as_ref() == &d[..32]
-        {
-            let passkey_id = i.unwrap();
-            let user_id = u.unwrap();
-            if snapshot
+            && snapshot
                 .get::<PassKey>(&format!("pk/{user_id}/{passkey_id}"))
-                .filter(|passkey| {
-                    passkey.verify(s.as_slice(), d.as_slice(), hash.unwrap().as_slice())
-                })
+                .filter(|passkey| passkey.verify(s.as_slice(), d.as_slice(), hash.as_slice()))
                 .is_some()
-            {
-                if let Some(session) =
-                    Session::create(user_id, snapshot, Some(passkey_id), false).await
-                {
-                    info!(
-                        "200 {}/auth/validate_credential",
-                        API_PATH_PREFIX.without_trailing_slash
-                    );
-                    let mut response = Response::builder().status(StatusCode::OK);
-                    let headers = response.headers_mut().unwrap();
-                    session.cookies(false).into_iter().for_each(|cookie| {
-                        headers.append(SET_COOKIE, cookie);
-                    });
-                    return Some(response.body(Either::Right(Empty::new())).unwrap());
-                };
-            }
+            && let Some(session) = Session::create(user_id, snapshot, Some(passkey_id), false).await
+        {
+            info!(
+                "200 {}/auth/validate_credential",
+                API_PATH_PREFIX.without_trailing_slash
+            );
+            let mut response = Response::builder().status(StatusCode::OK);
+            let headers = response.headers_mut().unwrap();
+            session.cookies(false).into_iter().for_each(|cookie| {
+                headers.append(SET_COOKIE, cookie);
+            });
+            return Some(response.body(Either::Right(Empty::new())).unwrap());
         }
     }
     None
