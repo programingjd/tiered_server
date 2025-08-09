@@ -23,7 +23,7 @@ use tracing::info;
 
 const SECS_PER_YEAR: u64 = 31_556_952;
 
-#[allow(clippy::inconsistent_digit_grouping)]
+#[allow(clippy::inconsistent_digit_grouping, clippy::unnecessary_unwrap)]
 pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     server_name: &Arc<String>,
@@ -155,55 +155,53 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                     )
                     .await
                 });
+            } else if let Some(metadata) = extension
+                .accept_user_registration(
+                    &normalized_email,
+                    &normalized_last_name,
+                    &normalized_first_name,
+                    dob,
+                    params,
+                )
+                .await
+            {
+                let email_trim = email.trim();
+                let last_name_trim = last_name.trim();
+                let first_name_trim = first_name.trim();
+                let _user = User::create(
+                    if email.len() == email_trim.len() {
+                        email
+                    } else {
+                        email_trim.to_string()
+                    },
+                    Some(normalized_email),
+                    if last_name.len() == last_name_trim.len() {
+                        last_name
+                    } else {
+                        last_name_trim.to_string()
+                    },
+                    Some(normalized_last_name),
+                    if first_name.len() == first_name_trim.len() {
+                        first_name
+                    } else {
+                        first_name_trim.to_string()
+                    },
+                    Some(normalized_first_name),
+                    dob,
+                    metadata,
+                    false,
+                    needs_moderation,
+                    false,
+                    &snapshot,
+                    server_name,
+                )
+                .await;
             } else {
-                if let Some(metadata) = extension
-                    .accept_user_registration(
-                        &normalized_email,
-                        &normalized_last_name,
-                        &normalized_first_name,
-                        dob,
-                        params,
-                    )
-                    .await
-                {
-                    let email_trim = email.trim();
-                    let last_name_trim = last_name.trim();
-                    let first_name_trim = first_name.trim();
-                    let _user = User::create(
-                        if email.len() == email_trim.len() {
-                            email
-                        } else {
-                            email_trim.to_string()
-                        },
-                        Some(normalized_email),
-                        if last_name.len() == last_name_trim.len() {
-                            last_name
-                        } else {
-                            last_name_trim.to_string()
-                        },
-                        Some(normalized_last_name),
-                        if first_name.len() == first_name_trim.len() {
-                            first_name
-                        } else {
-                            first_name_trim.to_string()
-                        },
-                        Some(normalized_first_name),
-                        dob,
-                        metadata,
-                        false,
-                        needs_moderation,
-                        false,
-                        &snapshot,
-                        server_name,
-                    )
-                    .await;
-                } else {
-                    info!("400 {}/user", API_PATH_PREFIX.without_trailing_slash);
-                    return Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Either::Right(Empty::new()))
-                        .unwrap();
-                }
+                info!("400 {}/user", API_PATH_PREFIX.without_trailing_slash);
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Either::Right(Empty::new()))
+                    .unwrap();
             }
             info!("202 {}/user", API_PATH_PREFIX.without_trailing_slash);
             return Response::builder()

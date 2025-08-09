@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::info;
 
+#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post(
     request: Request<Incoming>,
     snapshot: &Arc<Snapshot>,

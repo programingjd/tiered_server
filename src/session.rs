@@ -154,11 +154,7 @@ impl SessionState {
                     })
                 })
         });
-        if cookie_value.is_none() {
-            debug!("session cookie is missing");
-            SessionState::Missing
-        } else {
-            let session_id = cookie_value.unwrap();
+        if let Some(session_id) = cookie_value {
             if let Some(session) = snapshot.get::<Session>(&format!("sid/{session_id}")) {
                 let user_id = &session.user_id;
                 if let Some(user) = snapshot.get::<User>(&format!("acc/{user_id}")) {
@@ -195,6 +191,9 @@ impl SessionState {
                 debug!("session is missing");
                 SessionState::Missing
             }
+        } else {
+            debug!("session cookie is missing");
+            SessionState::Missing
         }
     }
 }

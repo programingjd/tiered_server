@@ -13,6 +13,7 @@ use ring::digest::{SHA256, digest};
 use std::sync::Arc;
 use tracing::info;
 
+#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post(
     request: Request<Incoming>,
     server_name: &Arc<String>,

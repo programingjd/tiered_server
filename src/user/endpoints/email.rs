@@ -12,6 +12,7 @@ use hyper::{Request, Response, StatusCode};
 use multer::{Constraints, Multipart, SizeLimit, parse_boundary};
 use tracing::info;
 
+#[allow(clippy::unnecessary_unwrap)]
 pub(crate) async fn post<Ext: Extension + Send + Sync>(
     request: Request<Incoming>,
     extension: &Ext,
