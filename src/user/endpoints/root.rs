@@ -1,4 +1,4 @@
-use crate::api::Extension;
+use crate::api::{Extension, RegistrationScreening};
 use crate::headers::JSON;
 use crate::norm::{normalize_email, normalize_first_name, normalize_last_name};
 use crate::otp::Otp;
@@ -155,8 +155,8 @@ pub(crate) async fn post<Ext: Extension + Send + Sync>(
                     )
                     .await
                 });
-            } else if let Some(metadata) = extension
-                .accept_user_registration(
+            } else if let RegistrationScreening::Accept { metadata } = extension
+                .screen_user_registration(
                     &normalized_email,
                     &normalized_last_name,
                     &normalized_first_name,

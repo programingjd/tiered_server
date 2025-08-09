@@ -16,6 +16,11 @@ pub enum Action {
     Moderation(moderation::Event),
 }
 
+pub enum RegistrationScreening {
+    Accept { metadata: Option<Value> },
+    Reject { reason: &'static str },
+}
+
 pub trait Extension {
     fn handle_api_extension(
         &self,
@@ -27,15 +32,15 @@ pub trait Extension {
         user: &User,
         action: Action,
     ) -> impl Future<Output = Option<()>> + Send;
-    fn accept_user_registration(
+    fn screen_user_registration(
         &self,
         _normalized_email: &str,
         _normalized_last_name: &str,
         _normalized_first_name: &str,
         _dob: u32,
         _params: BTreeMap<String, String>,
-    ) -> impl Future<Output = Option<Option<Value>>> + Send {
-        std::future::ready(Some(None))
+    ) -> impl Future<Output = RegistrationScreening> + Send {
+        std::future::ready(RegistrationScreening::Accept { metadata: None })
     }
 }
 
