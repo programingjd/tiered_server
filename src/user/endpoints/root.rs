@@ -245,8 +245,8 @@ pub(crate) async fn get(request: Request<Incoming>) -> Response<Either<Full<Byte
         let mut sms_numbers = Vec::with_capacity(0);
         for it in user.identification.into_iter() {
             match it {
-                IdentificationMethod::Email(email) => emails.push(email.normalized_address),
-                IdentificationMethod::Sms(sms) => sms_numbers.push(sms.normalized_number),
+                IdentificationMethod::Email(email) => emails.push(email.address),
+                IdentificationMethod::Sms(sms) => sms_numbers.push(sms.number),
                 _ => {}
             };
         }
