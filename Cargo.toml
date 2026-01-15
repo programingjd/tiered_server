@@ -1,16 +1,16 @@
 [package]
 name = "tiered_server"
-version = "0.6.11"
+version = "0.6.12"
 edition = "2024"
 rust-version = "1.85"
 
 [dependencies.zip_static_handler]
-version = "0.18"
+version = "0.20"
 default-features = false
 features = ["hyper"]
 
 [dependencies.firewall]
-version = "0.3"
+version = "0.4"
 default-features = false
 features = ["github_webhook", "cloudflare", "rustls"]
 
@@ -77,10 +77,10 @@ features = ["alloc"]
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
-features = ["blocking", "rustls-tls", "multipart", "json"]
+features = ["blocking", "rustls-tls-webpki-roots", "multipart", "json"]
 
 [dependencies.hyper]
-version = "1.6"
+version = "1.8"
 default-features = false
 features = []
 
@@ -110,7 +110,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.11"
+version = "2.14"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -125,7 +125,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.47"
+version = "1.49"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
