@@ -1,6 +1,7 @@
 use http_body_util::{Either, Empty, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::{Request, Response};
+use rustls::crypto;
 use std::sync::Arc;
 use tiered_server::api::{Action, Extension};
 use tiered_server::server::serve;
@@ -48,5 +49,8 @@ async fn main() {
             "tiered_server=warn,zip_static_handler=info,hyper=info",
         ))
         .init();
+    crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install ring as default crypto provider");
     serve(Box::leak(Box::new(ApiExtension))).await;
 }

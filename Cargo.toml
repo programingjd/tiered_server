@@ -77,7 +77,7 @@ features = ["alloc"]
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
-features = ["blocking", "rustls-tls-webpki-roots", "multipart", "json"]
+features = ["blocking", "rustls-tls-webpki-roots-no-provider", "multipart", "json"]
 
 [dependencies.hyper]
 version = "1.8"
@@ -110,7 +110,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.14"
+version = "2.17"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -125,7 +125,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.49"
+version = "1.50"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
