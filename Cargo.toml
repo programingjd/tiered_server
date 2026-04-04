@@ -1,11 +1,11 @@
 [package]
 name = "tiered_server"
-version = "0.6.12"
+version = "0.6.13"
 edition = "2024"
 rust-version = "1.85"
 
 [dependencies.zip_static_handler]
-version = "0.20"
+version = "0.22"
 default-features = false
 features = ["hyper"]
 
@@ -45,7 +45,7 @@ default-features = false
 features = []
 
 [dependencies.totp_rfc6238]
-version = "0.6"
+version = "0.7"
 default-features = false
 features = ["ring"]
 
@@ -80,7 +80,7 @@ default-features = false
 features = ["blocking", "rustls-tls-webpki-roots-no-provider", "multipart", "json"]
 
 [dependencies.hyper]
-version = "1.8"
+version = "1.9"
 default-features = false
 features = []
 
@@ -110,7 +110,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.17"
+version = "2.19"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -125,7 +125,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.50"
+version = "1.51"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
