@@ -227,15 +227,16 @@ mod tests_rsa {
 mod tests_ed25519 {
     use super::PassKey;
     use crate::browser::BrowserInfo;
-    use ed25519_dalek::ed25519::signature::rand_core::{OsRng, RngCore};
     use ed25519_dalek::pkcs8::EncodePublicKey;
+    use ed25519_dalek::rand_core::{Rng, UnwrapErr};
     use ed25519_dalek::{Signer, SigningKey};
+    use getrandom::SysRng;
 
     #[test]
     fn verify_ed25519() {
         let key_count = 3_usize;
         let payload_count = 3_usize;
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         for i in 0..key_count {
             let signing_key = SigningKey::generate(&mut rng);
             let public_key = signing_key.verifying_key();
@@ -270,18 +271,20 @@ mod tests_ed25519 {
 mod tests_es256 {
     use super::PassKey;
     use crate::browser::BrowserInfo;
+    use getrandom::SysRng;
     use p256::PublicKey;
     use p256::ecdsa::signature::Signer;
     use p256::ecdsa::{Signature, SigningKey};
-    use p256::elliptic_curve::rand_core::{OsRng, RngCore};
+    use p256::elliptic_curve::Generate;
+    use p256::elliptic_curve::rand_core::{Rng, UnwrapErr};
 
     #[test]
     fn verify_es256() {
         let key_count = 3_usize;
         let payload_count = 3_usize;
-        let mut rng = OsRng;
+        let mut rng = UnwrapErr(SysRng);
         for i in 0..key_count {
-            let signing_key = SigningKey::random(&mut rng);
+            let signing_key = SigningKey::generate_from_rng(&mut rng);
             let verifying_key = signing_key.verifying_key();
             let public_key =
                 PublicKey::from_sec1_bytes(verifying_key.to_sec1_bytes().as_ref()).unwrap();

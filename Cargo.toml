@@ -75,9 +75,9 @@ default-features = false
 features = ["alloc"]
 
 [dependencies.reqwest]
-version = "0.12"
+version = "0.13"
 default-features = false
-features = ["blocking", "rustls-tls-webpki-roots-no-provider", "multipart", "json"]
+features = ["blocking", "rustls-no-provider", "multipart", "json"]
 
 [dependencies.hyper]
 version = "1.9"
@@ -110,7 +110,7 @@ default-features = false
 features = ["serde"]
 
 [dependencies.minijinja]
-version = "2.19"
+version = "2.24"
 default-features = false
 features = ["builtins", "serde"]
 
@@ -125,7 +125,7 @@ default-features = false
 features = ["ring", "pem"]
 
 [dependencies.tokio]
-version = "1.52"
+version = "1.53"
 default-features = false
 features = ["net", "time", "macros", "rt", "rt-multi-thread"]
 
@@ -153,13 +153,18 @@ version = "0.9"
 default-features = false
 features = ["std", "sha2"]
 
-[dev-dependencies.ed25519-dalek]
-version = "2.2"
+[dev-dependencies.getrandom]
+version = "0.4"
 default-features = false
-features = ["std", "rand_core", "pkcs8"]
+features = ["std"]
+
+[dev-dependencies.ed25519-dalek]
+version = "3.0"
+default-features = false
+features = ["alloc", "rand_core", "pkcs8"]
 
 [dev-dependencies.p256]
-version = "0.13"
+version = "0.14"
 default-features = false
 features = ["std", "ecdsa", "pkcs8"]
 
