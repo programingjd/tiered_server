@@ -78,11 +78,11 @@ impl Totp {
                     }
                 }
                 .and_then(|template| {
-                    template.render(TemplateData {
+                    template.render(minijinja::value::Serde(TemplateData {
                         user,
                         code: code.as_str(),
                         action: &self.action,
-                    })
+                    }))
                 })
             }
             Err(_) => {
@@ -226,7 +226,7 @@ impl Totp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::totp::action::EmailUpdate;
+    use crate::totp::action::{EmailAddition, EmailUpdate};
     use crate::user::{Email, IdentificationMethod};
     use serde_json::json;
 
@@ -275,6 +275,43 @@ mod tests {
             "normalized_new_address": "new@example.com",
             "new_address": "new@example.com",
         });
-        assert_eq!(expected, serde_json::to_value(template_data).unwrap());
+        assert_eq!(expected, serde_json::to_value(&template_data).unwrap());
+
+        let mut environment = Environment::new();
+        environment
+            .add_template(
+                "test",
+                "{{ code }}|{{ user.first_name }}|{{ normalized_old_address }}|{{ normalized_new_address }}|{{ new_address }}",
+            )
+            .unwrap();
+        let template = environment.get_template("test").unwrap();
+
+        let update_rendered = template
+            .render(minijinja::value::Serde(TemplateData {
+                user: template_data.user,
+                code: template_data.code,
+                action: template_data.action,
+            }))
+            .unwrap();
+        assert_eq!(
+            update_rendered,
+            "12345678|John|test@example.com|new@example.com|new@example.com"
+        );
+
+        let add_action = Action::AddEmail(EmailAddition {
+            normalized_new_address: "new@example.com".to_string(),
+            new_address: "new@example.com".to_string(),
+        });
+        let add_rendered = template
+            .render(minijinja::value::Serde(TemplateData {
+                user: template_data.user,
+                code: template_data.code,
+                action: &add_action,
+            }))
+            .unwrap();
+        assert_eq!(
+            add_rendered,
+            "12345678|John||new@example.com|new@example.com"
+        );
     }
 }

@@ -99,10 +99,10 @@ impl Otp {
                     }
                 }
                 .and_then(|template| {
-                    template.render(TemplateData {
+                    template.render(minijinja::value::Serde(TemplateData {
                         user,
                         link_url: link_url.as_str(),
-                    })
+                    }))
                 })
             }
             Err(_) => {
@@ -193,5 +193,47 @@ impl Otp {
             })
             .collect::<Vec<_>>();
         Snapshot::delete_and_return_before_update(paths.iter()).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::user::{Email, IdentificationMethod};
+
+    #[test]
+    fn test_template_data_renders() {
+        let template_data = TemplateData {
+            user: &User {
+                id: "user1".to_string(),
+                identification: vec![IdentificationMethod::Email(Email {
+                    normalized_address: "test@example.com".to_string(),
+                    address: "test@example.com".to_string(),
+                })],
+                last_name: "Doe".to_string(),
+                normalized_last_name: "Doe".to_string(),
+                first_name: "John".to_string(),
+                normalized_first_name: "John".to_string(),
+                date_of_birth: 20000101,
+                admin: false,
+                metadata: None,
+            },
+            link_url: "https://example.com/otp/token.signature",
+        };
+        let mut environment = Environment::new();
+        environment
+            .add_template("test", "{{ user.first_name }}|{{ link_url }}")
+            .unwrap();
+
+        let rendered = environment
+            .get_template("test")
+            .unwrap()
+            .render(minijinja::value::Serde(&template_data))
+            .unwrap();
+
+        assert_eq!(
+            rendered,
+            "John|https://example.com/otp/token.signature"
+        );
     }
 }
